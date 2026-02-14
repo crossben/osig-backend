@@ -106,7 +106,7 @@ class ScanModule(Base):
     
     # Relationships
     scan = relationship("Scan", back_populates="modules")
-    results = relationship("Result", back_populates="module", cascade="all, delete-orphan")
+    results = relationship("Result", back_populates="module_ref", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<ScanModule {self.display_name} - {self.status.value}>"
