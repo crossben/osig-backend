@@ -95,8 +95,9 @@ class ScanService:
         db.commit()
         db.refresh(db_scan)
         
-        # TODO: Enqueue background job for scan execution
-        # celery_app.send_task('scan_tasks.execute_scan', args=[str(db_scan.id)])
+        # Enqueue background job for scan execution
+        from app.core.celery_app import celery_app
+        celery_app.send_task('scan_tasks.execute_scan', args=[str(db_scan.id)])
         
         return db_scan
     
@@ -161,10 +162,12 @@ class ScanService:
         db.commit()
         db.refresh(scan)
         
-        # TODO: Cancel background job
-        # celery_app.control.revoke(str(scan.id), terminate=True)
+        # Cancel background job
+        from app.core.celery_app import celery_app
+        celery_app.control.revoke(str(scan.id), terminate=True)
         
         return scan
+
 
 
 # Service instance
