@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000"
     
     # User Plan Limits
-    FREE_DAILY_SCANS: int = 5
+    FREE_DAILY_SCANS: int = 150
     PRO_DAILY_SCANS: int = 50
     ENTERPRISE_DAILY_SCANS: int = 999999
     

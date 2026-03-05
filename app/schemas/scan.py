@@ -5,6 +5,7 @@ Pydantic schemas for scan-related requests and responses.
 """
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 import re
 
@@ -67,8 +68,8 @@ class CreateScanRequest(ScanBase):
 # Scan Response
 class ScanResponse(ScanBase):
     """Schema for scan response."""
-    id: str
-    user_id: str
+    id: UUID
+    user_id: UUID
     status: ScanStatus
     progress: int
     started_at: Optional[datetime] = None

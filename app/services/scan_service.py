@@ -96,8 +96,14 @@ class ScanService:
         db.refresh(db_scan)
         
         # Enqueue background job for scan execution
-        from app.core.celery_app import celery_app
-        celery_app.send_task('scan_tasks.execute_scan', args=[str(db_scan.id)])
+        import threading
+        from app.workers.scan_tasks import execute_scan_sync
+        thread = threading.Thread(
+            target=execute_scan_sync,
+            args=[str(db_scan.id)],
+            daemon=True
+        )
+        thread.start()
         
         return db_scan
     

@@ -5,6 +5,7 @@ Pydantic schemas for user-related requests and responses.
 """
 from typing import Optional
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from app.models.user import UserPlan
 
@@ -33,7 +34,7 @@ class UserLogin(BaseModel):
 # User Response
 class UserResponse(UserBase):
     """Schema for user response (without password)."""
-    id: str
+    id: UUID
     plan: UserPlan
     avatar_url: Optional[str] = None
     is_active: bool
