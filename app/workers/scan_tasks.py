@@ -25,15 +25,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _get_modules(target_type: TargetType, scan_type: ScanType):
+def _get_core_modules(target_type: TargetType, scan_type: ScanType):
     """
-    Return the list of (module_instance, deep_flag) tuples for the given target.
-    Google Dork always runs on both quick and deep.
+    Core synchronous modules — run together, scan completes when these finish.
     """
     deep = (scan_type == ScanType.DEEP)
-    target_str = target_type.value  # "email", "username", "domain", "phone"
 
-    # Core OSINT modules per target type
     if target_type == TargetType.EMAIL:
         core = [EmailIntelModule()]
     elif target_type == TargetType.DOMAIN:
@@ -45,17 +42,95 @@ def _get_modules(target_type: TargetType, scan_type: ScanType):
     else:
         core = []
 
-    # Google Dork runs on both quick and deep
-    dork_module = GoogleDorkModule(target_type=target_str)
+    return [(m, deep) for m in core]
 
-    # Return (module, deep_flag) pairs
-    return [(m, deep) for m in core] + [(dork_module, False)]
+
+def _get_async_modules(target_type: TargetType, scan_type: ScanType):
+    """
+    Async (fire-and-forget) modules — run in background daemon thread.
+    Scan completes before these finish.
+    """
+    target_str = target_type.value
+    return [(GoogleDorkModule(target_type=target_str), False)]
+
+
+def _run_modules(scan_id: str, module_pairs: list, start_progress: int = 5):
+    """
+    Generic runner: executes a list of (module, deep) pairs for a scan,
+    saves results to DB, and returns. Used for both core and async modules.
+    """
+    db = SessionLocal()
+    try:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            return
+
+        total = len(module_pairs)
+        import concurrent.futures, inspect
+
+        for i, (module, deep) in enumerate(module_pairs):
+            db_module = ScanModule(
+                scan_id=scan.id,
+                name=module.name,
+                display_name=module.display_name,
+                status=ModuleStatus.RUNNING,
+                progress=0,
+                started_at=datetime.utcnow(),
+            )
+            db.add(db_module)
+            db.commit()
+            db.refresh(db_module)
+
+            try:
+                sig = inspect.signature(module.run)
+                run_kwargs = {'deep': deep} if 'deep' in sig.parameters else {}
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(module.run, scan.target_value, **run_kwargs)
+                    try:
+                        results: List[OSINTResult] = future.result(timeout=25)
+                    except concurrent.futures.TimeoutError:
+                        logger.warning(f"Module {module.name} timed out, skipping")
+                        results = []
+
+                for osint_result in results:
+                    db_result = Result(
+                        scan_id=scan.id,
+                        module_id=db_module.id,
+                        module=module.name,
+                        data_type=osint_result.data_type,
+                        data=osint_result.data,
+                        source=osint_result.source,
+                        source_url=osint_result.source_url,
+                        confidence=osint_result.confidence,
+                    )
+                    db.add(db_result)
+
+                db_module.status = ModuleStatus.COMPLETED
+                db_module.progress = 100
+                db_module.completed_at = datetime.utcnow()
+                db_module.result_count = len(results)
+
+            except Exception as e:
+                logger.error(f"Module {module.name} failed: {e}", exc_info=True)
+                db_module.status = ModuleStatus.FAILED
+                db_module.error = str(e)
+                db_module.completed_at = datetime.utcnow()
+
+            db.commit()
+
+    except Exception as e:
+        logger.error(f"_run_modules error for scan {scan_id}: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
 
 
 def execute_scan_sync(scan_id: str):
     """
-    Execute an OSINT scan synchronously in a background thread.
-    Persists ScanModule rows and Result rows to the database.
+    Execute an OSINT scan. Core modules run synchronously — scan is marked
+    completed as soon as they finish. Async modules (Google Dork) run in a
+    separate daemon thread so they never block the scan status.
     """
     db = SessionLocal()
     try:
@@ -71,88 +146,52 @@ def execute_scan_sync(scan_id: str):
         # Mark as running
         scan.status = ScanStatus.RUNNING
         scan.started_at = datetime.utcnow()
-        scan.progress = 5
+        scan.progress = 10
         db.commit()
 
-        module_pairs = _get_modules(scan.target_type, scan.scan_type)
-        total_modules = len(module_pairs)
-        all_results: List[OSINTResult] = []
+        # ── Core modules (synchronous) ────────────────────────────────────
+        core_pairs = _get_core_modules(scan.target_type, scan.scan_type)
+        db.close()  # Close before handing off to _run_modules
+        db = None
 
-        for i, (module, deep) in enumerate(module_pairs):
-            # Create ScanModule record
-            db_module = ScanModule(
-                scan_id=scan.id,
-                name=module.name,
-                display_name=module.display_name,
-                status=ModuleStatus.RUNNING,
-                progress=0,
-                started_at=datetime.utcnow(),
-            )
-            db.add(db_module)
-            db.commit()
-            db.refresh(db_module)
+        _run_modules(scan_id, core_pairs)
 
-            try:
-                # Run the module — pass `deep` flag if the module accepts it
-                import inspect
-                sig = inspect.signature(module.run)
-                if 'deep' in sig.parameters:
-                    results: List[OSINTResult] = module.run(scan.target_value, deep=deep)
-                else:
-                    results: List[OSINTResult] = module.run(scan.target_value)
-
-                all_results.extend(results)
-
-                # Persist results
-                for osint_result in results:
-                    db_result = Result(
-                        scan_id=scan.id,
-                        module_id=db_module.id,
-                        module=module.name,
-                        data_type=osint_result.data_type,
-                        data=osint_result.data,
-                        source=osint_result.source,
-                        source_url=osint_result.source_url,
-                        confidence=osint_result.confidence,
-                    )
-                    db.add(db_result)
-
-                # Update module status
-                db_module.status = ModuleStatus.COMPLETED
-                db_module.progress = 100
-                db_module.completed_at = datetime.utcnow()
-                db_module.result_count = len(results)
-
-            except Exception as e:
-                logger.error(f"Module {module.name} failed: {e}", exc_info=True)
-                db_module.status = ModuleStatus.FAILED
-                db_module.error = str(e)
-                db_module.completed_at = datetime.utcnow()
-
-            db.commit()
-
-            # Update overall progress
-            scan.progress = int(((i + 1) / total_modules) * 95) + 5
-            db.commit()
-
-        # Complete scan
+        # Re-open to complete the scan status
+        db = SessionLocal()
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
         scan.status = ScanStatus.COMPLETED
         scan.progress = 100
         scan.completed_at = datetime.utcnow()
         db.commit()
-        logger.info(f"Scan {scan_id} completed. Total results: {len(all_results)}")
+        logger.info(f"Scan {scan_id} core modules completed.")
+
+        # ── Async modules (fire-and-forget) ───────────────────────────────
+        async_pairs = _get_async_modules(scan.target_type, scan.scan_type)
+        if async_pairs:
+            import threading
+            t = threading.Thread(
+                target=_run_modules,
+                args=(str(scan_id), async_pairs),
+                daemon=True,
+                name=f"dork-{scan_id[:8]}",
+            )
+            t.start()
+            logger.info(f"Dork thread started for scan {scan_id}")
 
     except Exception as e:
         logger.error(f"Scan {scan_id} failed: {e}", exc_info=True)
-        db.rollback()
         try:
-            scan = db.query(Scan).filter(Scan.id == scan_id).first()
-            if scan:
-                scan.status = ScanStatus.FAILED
-                scan.error_message = str(e)
-                scan.completed_at = datetime.utcnow()
-                db.commit()
+            if db:
+                db.rollback()
+                scan = db.query(Scan).filter(Scan.id == scan_id).first()
+                if scan:
+                    scan.status = ScanStatus.FAILED
+                    scan.error_message = str(e)
+                    scan.completed_at = datetime.utcnow()
+                    db.commit()
         except Exception:
             pass
     finally:
-        db.close()
+        if db:
+            db.close()
+

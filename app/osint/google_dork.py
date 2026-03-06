@@ -11,41 +11,27 @@ from typing import List, Optional
 import time
 from app.osint.base import BaseOSINTModule, OSINTResult
 
-# Target-type dork templates
+# Target-type dork templates — keep short: 3 quick queries per type
 DORK_TEMPLATES = {
     "email": [
-        '"{target}" site:linkedin.com',
-        '"{target}" site:github.com',
-        '"{target}" site:pastebin.com',
-        '"{target}" site:reddit.com',
-        '"{target}" "leaked" OR "breach" OR "dump"',
-        '"{target}" site:twitter.com OR site:x.com',
-        '"{target}" intext:password OR intext:passwd',
+        '"{}" site:linkedin.com OR site:github.com',
+        '"{}" site:pastebin.com',
+        '"{}" "leaked" OR "breach" OR "dump"',
     ],
     "username": [
-        '"{target}" site:github.com',
-        '"{target}" site:reddit.com',
-        '"{target}" site:twitter.com OR site:x.com',
-        '"{target}" site:linkedin.com',
-        '"{target}" site:instagram.com',
-        '"{target}" site:pastebin.com',
-        '"{target}" site:keybase.io',
+        '"{}" site:github.com OR site:reddit.com',
+        '"{}" site:twitter.com OR site:instagram.com',
+        '"{}" site:pastebin.com OR site:keybase.io',
     ],
     "domain": [
-        'site:{target} filetype:pdf',
-        'site:{target} filetype:xls OR filetype:csv',
-        '"{target}" site:pastebin.com',
-        'inurl:{target} "admin" OR "login" OR "panel"',
-        '"{target}" "password" OR "credentials"',
-        'site:{target} inurl:".git" OR inurl:".env"',
-        '"{target}" site:shodan.io',
+        'site:{} filetype:pdf OR filetype:xls',
+        '"{}" site:pastebin.com',
+        'inurl:{} "admin" OR "login" OR ".env"',
     ],
     "phone": [
-        '"{target}" site:linkedin.com',
-        '"{target}" site:truecaller.com OR site:whitepages.com',
-        '"{target}" "contact" OR "whatsapp"',
-        '"{target}" site:reddit.com',
-        '"{target}" site:pastebin.com',
+        '"{}" site:linkedin.com',
+        '"{}" site:truecaller.com OR site:whitepages.com',
+        '"{}" site:pastebin.com',
     ],
 }
 
@@ -58,7 +44,8 @@ class GoogleDorkModule(BaseOSINTModule):
     URLs and snippets from public search results.
     """
 
-    MAX_RESULTS_PER_QUERY = 3  # Keep reasonable to avoid rate limits
+    MAX_RESULTS_PER_QUERY = 2
+    TOTAL_TIMEOUT_SECONDS = 30  # Hard stop for the whole module
 
     def __init__(self, target_type: str = "email"):
         super().__init__(
@@ -77,38 +64,46 @@ class GoogleDorkModule(BaseOSINTModule):
             return results
 
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
         except ImportError:
-            self.logger.error("duckduckgo-search not installed. Run: pip install duckduckgo-search")
+            self.logger.error("ddgs not installed. Run: pip install ddgs")
             return results
 
-        with DDGS() as ddgs:
-            for template in templates:
-                query = template.replace("{target}", target).replace('"{target}"', f'"{target}"')
-                try:
-                    hits = list(ddgs.text(query, max_results=self.MAX_RESULTS_PER_QUERY))
-                    for hit in hits:
-                        result = OSINTResult(
-                            source="DuckDuckGo Dork",
-                            source_url=hit.get("href") or hit.get("url"),
-                            data_type="dork_result",
-                            data={
-                                "query": query,
-                                "title": hit.get("title", ""),
-                                "snippet": hit.get("body", "")[:500],
-                                "url": hit.get("href") or hit.get("url"),
-                                "target": target,
-                            },
-                            confidence=0.7,
-                        )
-                        results.append(result)
+        import time as _time
+        start = _time.time()
 
-                    # Small delay between queries to be respectful
-                    time.sleep(0.5)
+        try:
+            with DDGS() as ddgs:
+                for template in templates:
+                    # Hard global timeout
+                    if _time.time() - start > self.TOTAL_TIMEOUT_SECONDS:
+                        self.logger.warning("Dork module hit global timeout, stopping early")
+                        break
 
-                except Exception as e:
-                    self.logger.warning(f"Dork query failed for [{query}]: {e}")
-                    continue
+                    query = template.format(target)
+                    try:
+                        hits = list(ddgs.text(query, max_results=self.MAX_RESULTS_PER_QUERY))
+                        for hit in hits:
+                            result = OSINTResult(
+                                source="DuckDuckGo Dork",
+                                source_url=hit.get("href") or hit.get("url"),
+                                data_type="dork_result",
+                                data={
+                                    "query": query,
+                                    "title": hit.get("title", ""),
+                                    "snippet": hit.get("body", "")[:400],
+                                    "url": hit.get("href") or hit.get("url"),
+                                    "target": target,
+                                },
+                                confidence=0.7,
+                            )
+                            results.append(result)
+                        _time.sleep(0.3)
+                    except Exception as e:
+                        self.logger.warning(f"Dork query failed [{query}]: {e}")
+                        continue
+        except Exception as e:
+            self.logger.warning(f"DuckDuckGo session error: {e}")
 
         self.log_success(len(results))
         return results
