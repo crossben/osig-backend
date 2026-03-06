@@ -366,6 +366,25 @@ def get_scan_graph(
             "found": group["found"],
         })
 
+    # Optional: Use networkx to calculate node centrality (importance)
+    try:
+        import networkx as nx
+        G = nx.Graph()
+        for node in nodes:
+            G.add_node(node["id"])
+        for edge in edges:
+            G.add_edge(edge["source"], edge["target"])
+        
+        # Compute centrality (degree centrality is safe for disconnected or strict star graphs)
+        centrality = nx.degree_centrality(G)
+        
+        for node in nodes:
+            # Map centrality score into the node properties (default to 0.1 if not found)
+            node["data"]["centrality"] = centrality.get(node["id"], 0.1)
+    except Exception as e:
+        # Fallback if networkx isn't installed or fails
+        pass
+
     return {"nodes": nodes, "edges": edges}
 
 

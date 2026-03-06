@@ -77,6 +77,11 @@ class EmailIntelModule(BaseOSINTModule):
                 results.append(mx_result)
 
             if deep:
+                # Deep only: check EmailRep for reputation and risk score
+                emailrep_result = self._check_emailrep(target)
+                if emailrep_result:
+                    results.append(emailrep_result)
+
                 # Deep only: check Holehe via CLI if available
                 holehe_results = self._check_holehe(target)
                 results.extend(holehe_results)
@@ -271,7 +276,39 @@ class EmailIntelModule(BaseOSINTModule):
         
         return results
     
-    def _analyze_risk(self, results: List[OSINTResult]) -> Dict[str, Any]:
+    def _check_emailrep(self, email: str) -> Optional[OSINTResult]:
+        """
+        Check EmailRep for email reputation and risk.
+        """
+        try:
+            import httpx
+            # The free tier of EmailRep allows unauthenticated queries, rate limited
+            url = f"https://emailrep.io/{email}"
+            headers = {"User-Agent": "OSIG-Scan-Engine"}
+            
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(url, headers=headers)
+                
+            if response.status_code == 200:
+                data = response.json()
+                return OSINTResult(
+                    source="EmailRep",
+                    source_url=url,
+                    data_type="reputation",
+                    data=data,
+                    confidence=0.85
+                )
+            elif response.status_code == 429:
+                self.logger.warning(f"EmailRep rate limit exceeded for {email}")
+            else:
+                self.logger.warning(f"EmailRep lookup failed: {response.status_code}")
+                
+        except Exception as e:
+            self.logger.warning(f"EmailRep lookup failed for {email}: {str(e)}")
+            
+        return None
+
+    def _analyze_risk(self, email: str, results: List[OSINTResult]) -> Dict[str, Any]:
         """
         Analyze findings to determine risk level.
         

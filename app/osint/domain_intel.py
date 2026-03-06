@@ -78,6 +78,18 @@ class DomainIntelModule(BaseOSINTModule):
             harvester_results = self._check_harvester(target)
             results.extend(harvester_results)
 
+            # Extract IPs from DNS A records to run IP intelligence
+            ips_to_check = set()
+            for r in dns_results:
+                if r.data.get("record_type") == "A":
+                    for ip in r.data.get("records", []):
+                        ips_to_check.add(ip)
+            
+            for ip in ips_to_check:
+                ip_res = self._lookup_ip_info(ip, target)
+                if ip_res:
+                    results.append(ip_res)
+
             if deep:
                 # Deep: certificate transparency logs via crt.sh
                 crt_results = self._check_crtsh(target)
@@ -86,6 +98,10 @@ class DomainIntelModule(BaseOSINTModule):
                 # Deep: reverse IP lookup
                 reverse_results = self._reverse_ip_lookup(target)
                 results.extend(reverse_results)
+                
+                # Deep: sublist3r for expanded subdomain enumeration
+                subl_results = self._check_sublist3r(target)
+                results.extend(subl_results)
 
             self.log_success(len(results))
             
@@ -470,7 +486,79 @@ class DomainIntelModule(BaseOSINTModule):
         else:
             return str(field)
     
-    def _format_date(self, date_field: Any) -> Optional[str]:
+    def _lookup_ip_info(self, ip_address: str, domain: str) -> Optional[OSINTResult]:
+        """
+        Lookup IP intelligence (ASN, GeoIP, Network) using ipwhois.
+        """
+        try:
+            from ipwhois import IPWhois
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                obj = IPWhois(ip_address)
+                res = obj.lookup_rdap(depth=1)
+                
+                network = res.get('network', {})
+                country = res.get('asn_country_code')
+                
+                data = {
+                    "ip": ip_address,
+                    "domain": domain,
+                    "asn": res.get('asn'),
+                    "asn_description": res.get('asn_description'),
+                    "country": country,
+                    "cidr": network.get('cidr'),
+                    "name": network.get('name')
+                }
+                
+                return OSINTResult(
+                    source="IPWhois",
+                    source_url=None,
+                    data_type="ip_intel",
+                    data=data,
+                    confidence=0.9
+                )
+        except Exception as e:
+            self.logger.warning(f"IP Whois failed for {ip_address}: {str(e)}")
+            return None
+
+    def _check_sublist3r(self, domain: str) -> List[OSINTResult]:
+        """
+        Run sublist3r to find additional subdomains.
+        """
+        results = []
+        try:
+            import sublist3r
+            import concurrent.futures
+            
+            def run_sublist3r():
+                return sublist3r.main(domain, 40, savefile=None, ports=None, silent=True, verbose=False, enable_bruteforce=False, engines=None)
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(run_sublist3r)
+                # sublist3r can take a while, cap it at 45 seconds
+                subdomains = future.result(timeout=45)
+                
+            if subdomains and isinstance(subdomains, (list, set, tuple)):
+                unique_subs = list(set(subdomains))
+                if unique_subs:
+                    results.append(OSINTResult(
+                        source="Sublist3r",
+                        source_url=None,
+                        data_type="subdomains",
+                        data={
+                            "domain": domain,
+                            "count": len(unique_subs),
+                            "subdomains": unique_subs
+                        },
+                        confidence=0.8
+                    ))
+        except Exception as e:
+            self.logger.warning(f"Sublist3r failed for {domain}: {str(e)}")
+            
+        return results
+
+    def _format_whois_date(self, date_field: Any) -> Optional[str]:
         """
         Format date fields from WHOIS data.
         

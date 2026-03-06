@@ -15,6 +15,7 @@ flower==2.0.1
 
 # Authentication
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 python-jose[cryptography]==3.3.0
 
 # Validation
@@ -34,6 +35,11 @@ phonenumbers==8.13.27
 python-whois==0.9.3
 dnspython==2.5.0
 ddgs
+ipwhois
+emailrep
+instaloader
+sublist3r
+networkx
 
 # Report Generation
 reportlab==4.0.9

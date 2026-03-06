@@ -100,6 +100,11 @@ class UsernameIntelModule(BaseOSINTModule):
                 # Deep: run Sherlock if installed
                 sherlock_results = self._check_sherlock(target)
                 results.extend(sherlock_results)
+                
+                # Deep: run Instaloader for Instagram specific data
+                instaloader_result = self._check_instaloader(target)
+                if instaloader_result:
+                    results.append(instaloader_result)
             
             self.log_success(len(results))
             
@@ -244,6 +249,44 @@ class UsernameIntelModule(BaseOSINTModule):
             self.logger.error(f"Sherlock check failed: {str(e)}")
         
         return results
+
+    def _check_instaloader(self, username: str) -> Optional[OSINTResult]:
+        """
+        Check Instagram data using Instaloader.
+        """
+        try:
+            import instaloader
+            L = instaloader.Instaloader(quiet=True)
+            profile = instaloader.Profile.from_username(L.context, username)
+            
+            data = {
+                "platform": "Instagram",
+                "username": username,
+                "url": f"https://instagram.com/{username}",
+                "full_name": profile.full_name,
+                "biography": profile.biography,
+                "external_url": profile.external_url,
+                "followers": profile.followers,
+                "followees": profile.followees,
+                "is_verified": profile.is_verified,
+                "is_private": profile.is_private,
+                "profile_pic_url": profile.profile_pic_url
+            }
+            return OSINTResult(
+                source="Instaloader",
+                source_url=data["url"],
+                data_type="social_profile",
+                data=data,
+                confidence=0.95
+            )
+        except Exception as e:
+            # We silently catch exceptions (e.g. ProfileNotExistsException) since many users won't be on Insta
+            self.logger.debug(f"Instaloader failed for {username}: {str(e)}")
+            
+        return None
+
+
+
 
 
 # Create module instance for easy import

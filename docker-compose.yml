@@ -24,7 +24,7 @@ services:
     container_name: osig_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6379"
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
     command: celery --broker=redis://redis:6379/0 flower
     ports:
-      - "5555:5555"
+      - "5555"
     depends_on:
       - redis
     environment:
@@ -58,7 +58,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-osig}:${POSTGRES_PASSWORD:-osig_dev_pass}@db:5432/${POSTGRES_DB:-osig_db}
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
+      - "8000"
     volumes:
       # Persist generated reports across container restarts
       - reports_storage:/app/storage/reports
@@ -68,7 +68,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/docs" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
