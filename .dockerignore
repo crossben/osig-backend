@@ -1,0 +1,40 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment — never copy into image
+venv/
+env/
+.venv/
+
+# Dev / test artifacts
+*.log
+nohup.out
+uvicorn.log
+.pytest_cache/
+tests/
+test_*.py
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker itself
+Dockerfile
+docker-compose.yml
+
+# Git
+.git/
+.gitignore
+
+# Secrets / local config (injected via env at runtime)
+.env.local
+.env.*.local
+
+# Storage (mounted as volume in prod)
+storage/

@@ -1,24 +1,30 @@
+version: '3.8'
+
 services:
+  # ── Database ─────────────────────────────────────────────
   db:
     image: postgres:15-alpine
     container_name: osig_postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: osig
-      POSTGRES_PASSWORD: osig_dev_pass
-      POSTGRES_DB: osig_db
+      POSTGRES_USER: ${POSTGRES_USER:-osig}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-osig_dev_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-osig_db}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U osig" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-osig}" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ── Redis (for queues/cache) ──────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: osig_redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
@@ -27,9 +33,11 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Flower (Celery Monitor - Optional) ────────────────────
   flower:
     image: mher/flower:2.0.1
     container_name: osig_flower
+    restart: unless-stopped
     command: celery --broker=redis://redis:6379/0 flower
     ports:
       - "5555:5555"
@@ -38,5 +46,36 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
 
+  # ── Backend API ───────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osig_backend_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override config to point to the Compose db and redis services
+      DATABASE_URL: postgresql://${POSTGRES_USER:-osig}:${POSTGRES_PASSWORD:-osig_dev_pass}@db:5432/${POSTGRES_DB:-osig_db}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist generated reports across container restarts
+      - reports_storage:/app/storage/reports
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/docs" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   postgres_data:
+  reports_storage:

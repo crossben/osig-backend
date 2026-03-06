@@ -5,6 +5,7 @@ Pydantic schemas for report-related requests and responses.
 """
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from app.models.report import ReportFormat, ReportStatus
 
@@ -16,9 +17,9 @@ class CreateReportRequest(ReportBase):
     scan_id: str
 
 class ReportResponse(ReportBase):
-    id: str
-    scan_id: str
-    user_id: str
+    id: UUID
+    scan_id: UUID
+    user_id: UUID
     status: ReportStatus
     file_size: Optional[int] = None
     download_url: Optional[str] = None

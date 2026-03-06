@@ -33,6 +33,7 @@ holehe==1.61
 phonenumbers==8.13.27
 python-whois==0.9.3
 dnspython==2.5.0
+ddgs
 
 # Report Generation
 reportlab==4.0.9

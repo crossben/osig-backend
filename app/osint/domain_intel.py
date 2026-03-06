@@ -230,29 +230,26 @@ class DomainIntelModule(BaseOSINTModule):
     
     def _check_subdomains(self, domain: str) -> List[OSINTResult]:
         """
-        Check for common subdomains.
-        
-        We try to resolve common subdomain patterns (www, mail, api, etc.)
-        to see if they exist. This gives insight into the domain's infrastructure.
-        
-        Args:
-            domain: Base domain
-            
-        Returns:
-            List of OSINTResult objects for found subdomains
+        Check for common subdomains via DNS resolution with a timeout.
+        Uses dns.resolver to avoid blocking indefinitely.
         """
         results = []
-        
+        try:
+            import dns.resolver
+        except ImportError:
+            self.logger.warning("dnspython not available, skipping subdomain check")
+            return results
+
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 2    # 2s per query
+        resolver.lifetime = 2   # 2s total lifetime per query
+
         for subdomain_name in self.COMMON_SUBDOMAINS:
             try:
-                # Construct full subdomain (e.g., www.example.com)
                 full_domain = f"{subdomain_name}.{domain}"
-                
-                # Try to resolve it to an IP address
-                # If it resolves, the subdomain exists
-                ip_addresses = socket.gethostbyname_ex(full_domain)[2]
-                
-                # Subdomain found!
+                answers = resolver.resolve(full_domain, 'A')
+                ip_addresses = [str(r) for r in answers]
+
                 result = OSINTResult(
                     source="Subdomain Enumeration",
                     source_url=f"http://{full_domain}",
@@ -261,22 +258,21 @@ class DomainIntelModule(BaseOSINTModule):
                         "subdomain": subdomain_name,
                         "full_domain": full_domain,
                         "ip_addresses": ip_addresses,
-                        "exists": True
+                        "exists": True,
                     },
-                    confidence=0.85
+                    confidence=0.85,
                 )
                 results.append(result)
-                
                 self.logger.info(f"Found subdomain: {full_domain}")
-                
-            except socket.gaierror:
-                # Subdomain doesn't exist (normal)
+
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
+                    dns.resolver.NoNameservers, dns.exception.Timeout):
+                # Subdomain doesn't exist or timed out — normal, skip
                 continue
             except Exception as e:
-                # Other errors
-                self.logger.debug(f"Error checking subdomain {subdomain_name}: {str(e)}")
+                self.logger.debug(f"Error checking subdomain {subdomain_name}: {e}")
                 continue
-        
+
         return results
     
     def _check_harvester(self, domain: str) -> List[OSINTResult]:

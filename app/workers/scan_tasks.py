@@ -92,6 +92,9 @@ def _run_modules(scan_id: str, module_pairs: list, start_progress: int = 5):
                     except concurrent.futures.TimeoutError:
                         logger.warning(f"Module {module.name} timed out, skipping")
                         results = []
+                    finally:
+                        # Ensure executor doesn't wait for hung threads
+                        executor.shutdown(wait=False)
 
                 for osint_result in results:
                     db_result = Result(
