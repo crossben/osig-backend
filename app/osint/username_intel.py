@@ -24,18 +24,41 @@ class UsernameIntelModule(BaseOSINTModule):
     """
     
     # Top platforms to check (used for quick scans)
-    # We prioritize the most popular platforms for faster results
     TOP_PLATFORMS = [
-        {"name": "GitHub", "url": "https://github.com/{}", "check_type": "status_code"},
-        {"name": "Twitter", "url": "https://twitter.com/{}", "check_type": "status_code"},
-        {"name": "Instagram", "url": "https://instagram.com/{}", "check_type": "status_code"},
-        {"name": "Reddit", "url": "https://reddit.com/user/{}", "check_type": "status_code"},
-        {"name": "LinkedIn", "url": "https://linkedin.com/in/{}", "check_type": "status_code"},
-        {"name": "Medium", "url": "https://medium.com/@{}", "check_type": "status_code"},
-        {"name": "dev.to", "url": "https://dev.to/{}", "check_type": "status_code"},
-        {"name": "Twitch", "url": "https://twitch.tv/{}", "check_type": "status_code"},
-        {"name": "YouTube", "url": "https://youtube.com/@{}", "check_type": "status_code"},
-        {"name": "TikTok", "url": "https://tiktok.com/@{}", "check_type": "status_code"},
+        {"name": "GitHub", "url": "https://github.com/{}"},
+        {"name": "Twitter", "url": "https://twitter.com/{}"},
+        {"name": "Instagram", "url": "https://instagram.com/{}"},
+        {"name": "Reddit", "url": "https://reddit.com/user/{}"},
+        {"name": "LinkedIn", "url": "https://linkedin.com/in/{}"},
+        {"name": "Medium", "url": "https://medium.com/@{}"},
+        {"name": "dev.to", "url": "https://dev.to/{}"},
+        {"name": "Twitch", "url": "https://twitch.tv/{}"},
+        {"name": "YouTube", "url": "https://youtube.com/@{}"},
+        {"name": "TikTok", "url": "https://tiktok.com/@{}"},
+    ]
+
+    # Extended platforms for deep scans
+    EXTENDED_PLATFORMS = [
+        {"name": "Pinterest", "url": "https://pinterest.com/{}"},
+        {"name": "Flickr", "url": "https://flickr.com/people/{}"},
+        {"name": "SoundCloud", "url": "https://soundcloud.com/{}"},
+        {"name": "Steam", "url": "https://steamcommunity.com/id/{}"},
+        {"name": "GitLab", "url": "https://gitlab.com/{}"},
+        {"name": "Keybase", "url": "https://keybase.io/{}"},
+        {"name": "HackerNews", "url": "https://news.ycombinator.com/user?id={}"},
+        {"name": "Mastodon", "url": "https://mastodon.social/@{}"},
+        {"name": "Telegram", "url": "https://t.me/{}"},
+        {"name": "Vimeo", "url": "https://vimeo.com/{}"},
+        {"name": "Patreon", "url": "https://patreon.com/{}"},
+        {"name": "Behance", "url": "https://behance.net/{}"},
+        {"name": "Dribbble", "url": "https://dribbble.com/{}"},
+        {"name": "ProductHunt", "url": "https://producthunt.com/@{}"},
+        {"name": "Trello", "url": "https://trello.com/{}"},
+        {"name": "Codecademy", "url": "https://codecademy.com/profiles/{}"},
+        {"name": "HackerEarth", "url": "https://hackerearth.com/@{}"},
+        {"name": "Kaggle", "url": "https://kaggle.com/{}"},
+        {"name": "DockerHub", "url": "https://hub.docker.com/u/{}"},
+        {"name": "NPM", "url": "https://npmjs.com/~{}"},
     ]
     
     def __init__(self):
@@ -45,12 +68,13 @@ class UsernameIntelModule(BaseOSINTModule):
             display_name="Username Intelligence"
         )
     
-    def run(self, target: str) -> List[OSINTResult]:
+    def run(self, target: str, deep: bool = False) -> List[OSINTResult]:
         """
         Execute username intelligence gathering.
         
         Args:
             target: Username to investigate
+            deep: If True, check 30+ platforms and run Sherlock
             
         Returns:
             List of findings about the username across platforms
@@ -58,22 +82,24 @@ class UsernameIntelModule(BaseOSINTModule):
         self.log_start(target)
         results = []
         
-        # Validate username format
         if not self.validate_target(target, "username"):
             self.logger.warning(f"Invalid username format: {target}")
             return results
         
         try:
-            # Method 1: Quick check of top platforms
-            # This gives fast results for common platforms
-            quick_results = self._check_top_platforms(target)
+            # Always: Quick check of top platforms
+            platforms_to_check = self.TOP_PLATFORMS[:]
+            if deep:
+                # Deep: also check extended platform list
+                platforms_to_check = self.TOP_PLATFORMS + self.EXTENDED_PLATFORMS
+
+            quick_results = self._check_platforms(target, platforms_to_check)
             results.extend(quick_results)
             
-            # Method 2: Sherlock comprehensive scan
-            # Note: Sherlock requires subprocess execution or library import
-            # Implemented as placeholder for now
-            sherlock_results = self._check_sherlock(target)
-            results.extend(sherlock_results)
+            if deep:
+                # Deep: run Sherlock if installed
+                sherlock_results = self._check_sherlock(target)
+                results.extend(sherlock_results)
             
             self.log_success(len(results))
             
@@ -83,20 +109,9 @@ class UsernameIntelModule(BaseOSINTModule):
         
         return results
     
-    def _check_top_platforms(self, username: str) -> List[OSINTResult]:
+    def _check_platforms(self, username: str, platforms: list) -> List[OSINTResult]:
         """
-        Quick check of top 10 social media platforms.
-        
-        We send HTTP requests to check if the username exists on major platforms.
-        This is faster than running full Sherlock scan when we just need quick results.
-        
-        Detection method: If the profile page returns 200 OK, the username likely exists.
-        
-        Args:
-            username: Username to check
-            
-        Returns:
-            List of OSINTResult objects for each platform checked
+        Check username on a given list of platform definitions.
         """
         results = []
         
@@ -107,20 +122,12 @@ class UsernameIntelModule(BaseOSINTModule):
         }
         
         with httpx.Client(timeout=5.0, headers=headers, follow_redirects=True) as client:
-            
-            for platform in self.TOP_PLATFORMS:
+            for platform in platforms:
                 try:
-                    # Format the URL with the username
-                    # Example: https://github.com/{username}
                     url = platform["url"].format(username)
-                    
-                    # Send HEAD request (faster than GET - only checks if page exists)
                     response = client.head(url, follow_redirects=True)
-                    
-                    # Determine if profile exists based on status code
                     exists = response.status_code == 200
                     
-                    # Create result object
                     result = OSINTResult(
                         source="Username Check",
                         source_url=url if exists else None,
@@ -132,7 +139,6 @@ class UsernameIntelModule(BaseOSINTModule):
                             "exists": exists,
                             "status_code": response.status_code
                         },
-                        # Higher confidence if found, lower if not found
                         confidence=0.85 if exists else 0.6
                     )
                     results.append(result)
@@ -141,7 +147,6 @@ class UsernameIntelModule(BaseOSINTModule):
                         self.logger.info(f"Found {username} on {platform['name']}")
                     
                 except Exception as e:
-                    # If check fails (timeout, connection error), log but continue
                     self.logger.warning(f"Failed to check {platform['name']}: {str(e)}")
                     continue
         

@@ -82,6 +82,27 @@ def list_scans(
     )
 
 
+@router.get("/quota/status")
+def get_quota_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get user's current scan quota status.
+    
+    Returns used scans today and daily limit.
+    """
+    has_quota, used_today, daily_limit = scan_service.check_scan_quota(db, current_user)
+    
+    return {
+        "plan": current_user.plan.value,
+        "daily_limit": daily_limit,
+        "used_today": used_today,
+        "remaining": daily_limit - used_today,
+        "has_quota": has_quota
+    }
+
+
 @router.get("/{scan_id}", response_model=ScanResponse)
 def get_scan(
     scan_id: str,
@@ -201,11 +222,10 @@ def get_scan_graph(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Build a relationship graph from scan results.
-    Returns nodes and edges for the ReactFlow visualization.
+    Build a semantic relationship graph from scan results.
+    Nodes are grouped by source/platform. Edges describe the relationship type.
     """
     from app.models.result import Result
-    import uuid as uuid_lib
 
     scan = scan_service.get_scan(db, scan_id, str(current_user.id))
     if not scan:
@@ -222,46 +242,128 @@ def get_scan_graph(
         "id": root_id,
         "type": str(scan.target_type.value),
         "label": scan.target_value,
-        "data": {"target_type": scan.target_type.value},
+        "data": {
+            "target_type": scan.target_type.value,
+            "scan_type": scan.scan_type.value,
+            "status": scan.status.value,
+        },
+        "found": True,
         "risk_level": None,
+        "is_root": True,
     })
 
-    # One node per result, connected to the root
+    # Group results by source platform to avoid duplicate nodes
+    # source_key → merged node data
+    source_groups: dict = {}
     for result in db_results:
-        node_id = str(result.id)
-        # Try to extract a meaningful label from the result data
         data = result.data or {}
-        label = (
-            data.get("platform") or
-            data.get("name") or
-            data.get("username") or
-            data.get("domain") or
-            result.source
+        source = result.source
+
+        # Determine if this result found something meaningful
+        found = (
+            data.get("exists") is True or
+            data.get("has_profile") is True or
+            data.get("domain_valid") is True or
+            result.data_type == "dork_result" or
+            result.data_type == "domain_registration" or
+            result.data_type == "dns_record" or
+            result.data_type == "subdomain" or
+            result.data_type == "ip_info" or
+            result.data_type == "email_infrastructure"
         )
 
-        # Map data_type to a node type the frontend knows
+        # Determine relationship label
+        type_to_rel = {
+            "social_profile": "registered on" if found else "not registered",
+            "profile": "profile linked" if found else "no profile",
+            "email_validation": "email validated",
+            "dns_record": "DNS record",
+            "domain_registration": "domain owner",
+            "subdomain": "subdomain found",
+            "ip_info": "resolves to IP",
+            "email_infrastructure": "email infrastructure",
+            "dork_result": "found via dork",
+        }
+        relationship = type_to_rel.get(result.data_type, result.data_type)
+
+        # Determine node type
         type_map = {
-            "profile": "profile",
             "social_profile": "social",
-            "account_existence": "username",
+            "profile": "profile",
+            "email_validation": "email",
+            "dns_record": "domain",
+            "domain_registration": "domain",
             "subdomain": "domain",
-            "email_account": "email",
+            "ip_info": "domain",
+            "email_infrastructure": "domain",
+            "dork_result": "profile",
         }
         node_type = type_map.get(result.data_type, "profile")
 
-        nodes.append({
-            "id": node_id,
-            "type": node_type,
-            "label": str(label),
+        # Risk detection heuristics
+        risky = (
+            data.get("is_disposable") is True or
+            data.get("risk") == "high" or
+            (result.data_type == "dork_result" and any(
+                kw in str(data.get("snippet", "")).lower()
+                for kw in ["password", "leaked", "breach", "dump", "credentials", "hack"]
+            ))
+        )
+
+        if source not in source_groups:
+            # Generate a node label
+            label = (
+                data.get("platform") or
+                data.get("domain") or
+                data.get("record_type") or
+                source
+            )
+            source_groups[source] = {
+                "id": f"node-{source.replace(' ', '_').lower()}",
+                "type": node_type,
+                "label": str(label),
+                "source": source,
+                "source_url": result.source_url,
+                "found": found,
+                "risk_level": "high" if risky else None,
+                "results": [],
+                "relationship": relationship,
+            }
+        else:
+            # Upgrade found/risk status if any result in this group is positive
+            if found:
+                source_groups[source]["found"] = True
+            if risky:
+                source_groups[source]["risk_level"] = "high"
+
+        source_groups[source]["results"].append({
+            "data_type": result.data_type,
             "data": data,
-            "risk_level": None,
+            "confidence": result.confidence,
         })
 
+    # Build final nodes and edges from groups
+    for source, group in source_groups.items():
+        nodes.append({
+            "id": group["id"],
+            "type": group["type"],
+            "label": group["label"],
+            "source": group["source"],
+            "source_url": group["source_url"],
+            "found": group["found"],
+            "risk_level": group["risk_level"],
+            "is_root": False,
+            "data": {
+                "results": group["results"],
+                "result_count": len(group["results"]),
+            },
+        })
         edges.append({
-            "id": f"edge-{root_id}-{node_id}",
+            "id": f"edge-{root_id}-{group['id']}",
             "source": root_id,
-            "target": node_id,
-            "label": result.source,
+            "target": group["id"],
+            "label": group["relationship"],
+            "found": group["found"],
         })
 
     return {"nodes": nodes, "edges": edges}
@@ -288,24 +390,3 @@ def cancel_scan(
     
     scan = scan_service.cancel_scan(db, scan)
     return ScanResponse.model_validate(scan)
-
-
-@router.get("/quota/status")
-def get_quota_status(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Get user's current scan quota status.
-    
-    Returns used scans today and daily limit.
-    """
-    has_quota, used_today, daily_limit = scan_service.check_scan_quota(db, current_user)
-    
-    return {
-        "plan": current_user.plan.value,
-        "daily_limit": daily_limit,
-        "used_today": used_today,
-        "remaining": daily_limit - used_today,
-        "has_quota": has_quota
-    }

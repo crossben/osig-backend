@@ -46,12 +46,13 @@ class DomainIntelModule(BaseOSINTModule):
             display_name="Domain Intelligence"
         )
     
-    def run(self, target: str) -> List[OSINTResult]:
+    def run(self, target: str, deep: bool = False) -> List[OSINTResult]:
         """
         Execute domain intelligence gathering.
         
         Args:
             target: Domain name to investigate (e.g., "example.com")
+            deep: If True, run extended checks (crt.sh, reverse IP)
             
         Returns:
             List of findings about the domain
@@ -59,29 +60,33 @@ class DomainIntelModule(BaseOSINTModule):
         self.log_start(target)
         results = []
         
-        # Validate domain format
         if not self.validate_target(target, "domain"):
             self.logger.warning(f"Invalid domain format: {target}")
             return results
         
         try:
-            # Method 1: WHOIS lookup
             whois_results = self._lookup_whois(target)
             if whois_results:
                 results.append(whois_results)
             
-            # Method 2: DNS records
             dns_results = self._lookup_dns_records(target)
             results.extend(dns_results)
             
-            # Method 3: Common subdomain enumeration
             subdomain_results = self._check_subdomains(target)
             results.extend(subdomain_results)
             
-            # Method 4: theHarvester (placeholder)
             harvester_results = self._check_harvester(target)
             results.extend(harvester_results)
-            
+
+            if deep:
+                # Deep: certificate transparency logs via crt.sh
+                crt_results = self._check_crtsh(target)
+                results.extend(crt_results)
+
+                # Deep: reverse IP lookup
+                reverse_results = self._reverse_ip_lookup(target)
+                results.extend(reverse_results)
+
             self.log_success(len(results))
             
         except Exception as e:
@@ -387,6 +392,69 @@ class DomainIntelModule(BaseOSINTModule):
             self.logger.error(f"Email/subdomain discovery failed: {str(e)}")
         
         return results
+
+    def _check_crtsh(self, domain: str) -> List[OSINTResult]:
+        """
+        Query crt.sh (certificate transparency logs) for subdomains.
+        Free, no API key required — returns all SSL certificates ever issued for the domain.
+        """
+        results = []
+        try:
+            import httpx
+            import json
+            url = f"https://crt.sh/?q=%.{domain}&output=json"
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(url, headers={"User-Agent": "OSIG-Scanner/1.0"})
+                if resp.status_code == 200:
+                    certs = resp.json()
+                    seen_names = set()
+                    for cert in certs[:100]:  # cap at 100 entries
+                        name = cert.get("name_value", "").strip()
+                        for n in name.split("\n"):
+                            n = n.strip().lstrip("*.").lower()
+                            if n and n not in seen_names and domain in n and n != domain:
+                                seen_names.add(n)
+                                results.append(OSINTResult(
+                                    source="crt.sh (Certificate Transparency)",
+                                    source_url=f"https://crt.sh/?q={n}",
+                                    data_type="subdomain",
+                                    data={
+                                        "subdomain": n,
+                                        "full_domain": n,
+                                        "issuer": cert.get("issuer_name", ""),
+                                        "not_before": cert.get("not_before"),
+                                        "not_after": cert.get("not_after"),
+                                        "exists": True,
+                                    },
+                                    confidence=0.9,
+                                ))
+        except Exception as e:
+            self.logger.warning(f"crt.sh lookup failed: {e}")
+        return results
+
+    def _reverse_ip_lookup(self, domain: str) -> List[OSINTResult]:
+        """
+        Find the IP address for the domain and look up its hostname.
+        Useful for identifying shared hosting / cloud providers.
+        """
+        results = []
+        try:
+            ip = socket.gethostbyname(domain)
+            hostname = socket.gethostbyaddr(ip)[0] if ip else None
+            results.append(OSINTResult(
+                source="Reverse IP Lookup",
+                source_url=None,
+                data_type="ip_info",
+                data={
+                    "domain": domain,
+                    "ip_address": ip,
+                    "reverse_hostname": hostname,
+                },
+                confidence=0.95,
+            ))
+        except Exception as e:
+            self.logger.warning(f"Reverse IP lookup failed: {e}")
+        return results
     
     # Helper methods for data cleaning
     
@@ -429,3 +497,4 @@ class DomainIntelModule(BaseOSINTModule):
 
 # Create module instance for easy import
 domain_intel = DomainIntelModule()
+

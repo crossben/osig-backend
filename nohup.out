@@ -1,0 +1,218 @@
+INFO:     Started server process [9952]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-03-06 00:39:58,859 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2026-03-06 00:39:58,859 INFO sqlalchemy.engine.Engine [raw sql] {}
+2026-03-06 00:39:58,860 INFO sqlalchemy.engine.Engine select current_schema()
+2026-03-06 00:39:58,860 INFO sqlalchemy.engine.Engine [raw sql] {}
+2026-03-06 00:39:58,860 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2026-03-06 00:39:58,860 INFO sqlalchemy.engine.Engine [raw sql] {}
+2026-03-06 00:39:58,861 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:39:58,863 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.email = %(email_1)s 
+ LIMIT %(param_1)s
+2026-03-06 00:39:58,863 INFO sqlalchemy.engine.Engine [generated in 0.00010s] {'email_1': 'benn@gmail.com', 'param_1': 1}
+2026-03-06 00:39:58,866 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.username = %(username_1)s 
+ LIMIT %(param_1)s
+2026-03-06 00:39:58,866 INFO sqlalchemy.engine.Engine [generated in 0.00012s] {'username_1': 'ben', 'param_1': 1}
+2026-03-06 00:39:58,867 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:39126 - "POST /api/v1/auth/register HTTP/1.1" 400 Bad Request
+2026-03-06 00:40:17,421 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:17,422 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.email = %(email_1)s 
+ LIMIT %(param_1)s
+2026-03-06 00:40:17,422 INFO sqlalchemy.engine.Engine [cached since 18.56s ago] {'email_1': 'ben@gmail.com', 'param_1': 1}
+2026-03-06 00:40:17,617 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:46864 - "POST /api/v1/auth/login HTTP/1.1" 200 OK
+2026-03-06 00:40:17,667 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:17,668 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:17,668 INFO sqlalchemy.engine.Engine [generated in 0.00015s] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:17,682 INFO sqlalchemy.engine.Engine SELECT count(scans.id) AS count_1 
+FROM scans 
+WHERE scans.user_id = %(user_id_1)s::UUID AND scans.created_at >= %(created_at_1)s
+2026-03-06 00:40:17,682 INFO sqlalchemy.engine.Engine [generated in 0.00019s] {'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'created_at_1': datetime.datetime(2026, 3, 6, 0, 0)}
+2026-03-06 00:40:17,685 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:46864 - "GET /api/v1/scans/quota/status HTTP/1.1" 200 OK
+2026-03-06 00:40:27,363 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:27,364 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:27,364 INFO sqlalchemy.engine.Engine [cached since 9.696s ago] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:27,366 INFO sqlalchemy.engine.Engine SELECT count(scans.id) AS count_1 
+FROM scans 
+WHERE scans.user_id = %(user_id_1)s::UUID AND scans.created_at >= %(created_at_1)s
+2026-03-06 00:40:27,366 INFO sqlalchemy.engine.Engine [cached since 9.684s ago] {'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'created_at_1': datetime.datetime(2026, 3, 6, 0, 0)}
+2026-03-06 00:40:27,368 INFO sqlalchemy.engine.Engine INSERT INTO scans (id, user_id, target_type, target_value, scan_type, status, progress, started_at, completed_at, created_at, updated_at, error_message) VALUES (%(id)s::UUID, %(user_id)s::UUID, %(target_type)s, %(target_value)s, %(scan_type)s, %(status)s, %(progress)s, %(started_at)s, %(completed_at)s, %(created_at)s, %(updated_at)s, %(error_message)s)
+2026-03-06 00:40:27,368 INFO sqlalchemy.engine.Engine [generated in 0.00022s] {'id': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'user_id': UUID('e5587f89-f632-47fd-b5b1-d218c2b4684c'), 'target_type': 'USERNAME', 'target_value': 'crossben', 'scan_type': 'QUICK', 'status': 'PENDING', 'progress': 0, 'started_at': None, 'completed_at': None, 'created_at': datetime.datetime(2026, 3, 6, 0, 40, 27, 368545), 'updated_at': datetime.datetime(2026, 3, 6, 0, 40, 27, 368546), 'error_message': None}
+2026-03-06 00:40:27,370 INFO sqlalchemy.engine.Engine COMMIT
+2026-03-06 00:40:27,377 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:27,378 INFO sqlalchemy.engine.Engine SELECT scans.id, scans.user_id, scans.target_type, scans.target_value, scans.scan_type, scans.status, scans.progress, scans.started_at, scans.completed_at, scans.created_at, scans.updated_at, scans.error_message 
+FROM scans 
+WHERE scans.id = %(pk_1)s::UUID
+2026-03-06 00:40:27,378 INFO sqlalchemy.engine.Engine [generated in 0.00010s] {'pk_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:27,710 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:37520 - "POST /api/v1/scans HTTP/1.1" 201 Created
+2026-03-06 00:40:27,714 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:27,716 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:27,716 INFO sqlalchemy.engine.Engine [generated in 0.00020s] {'id_1': 'a3afc65d-06dd-427a-bbba-74e9ee9e0fee', 'param_1': 1}
+2026-03-06 00:40:27,721 INFO sqlalchemy.engine.Engine UPDATE scans SET status=%(status)s, progress=%(progress)s, started_at=%(started_at)s, updated_at=%(updated_at)s WHERE scans.id = %(scans_id)s::UUID
+2026-03-06 00:40:27,721 INFO sqlalchemy.engine.Engine [generated in 0.00025s] {'status': 'RUNNING', 'progress': 5, 'started_at': datetime.datetime(2026, 3, 6, 0, 40, 27, 719603), 'updated_at': datetime.datetime(2026, 3, 6, 0, 40, 27, 721243), 'scans_id': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:27,723 INFO sqlalchemy.engine.Engine COMMIT
+2026-03-06 00:40:27,727 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:27,728 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(pk_1)s::UUID
+2026-03-06 00:40:27,728 INFO sqlalchemy.engine.Engine [generated in 0.00016s] {'pk_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:27,730 INFO sqlalchemy.engine.Engine INSERT INTO scan_modules (id, scan_id, name, display_name, status, progress, started_at, completed_at, result_count, error) VALUES (%(id)s::UUID, %(scan_id)s::UUID, %(name)s, %(display_name)s, %(status)s, %(progress)s, %(started_at)s, %(completed_at)s, %(result_count)s, %(error)s)
+2026-03-06 00:40:27,730 INFO sqlalchemy.engine.Engine [generated in 0.00025s] {'id': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'scan_id': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'name': 'username_intel', 'display_name': 'Username Intelligence', 'status': 'RUNNING', 'progress': 0, 'started_at': datetime.datetime(2026, 3, 6, 0, 40, 27, 729323), 'completed_at': None, 'result_count': 0, 'error': None}
+INFO:     127.0.0.1:37520 - "OPTIONS /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/details HTTP/1.1" 200 OK
+2026-03-06 00:40:27,733 INFO sqlalchemy.engine.Engine COMMIT
+2026-03-06 00:40:27,735 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:27,735 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:27,736 INFO sqlalchemy.engine.Engine [cached since 10.07s ago] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:27,736 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:27,737 INFO sqlalchemy.engine.Engine SELECT scan_modules.id, scan_modules.scan_id, scan_modules.name, scan_modules.display_name, scan_modules.status, scan_modules.progress, scan_modules.started_at, scan_modules.completed_at, scan_modules.result_count, scan_modules.error 
+FROM scan_modules 
+WHERE scan_modules.id = %(pk_1)s::UUID
+2026-03-06 00:40:27,737 INFO sqlalchemy.engine.Engine [generated in 0.00009s] {'pk_1': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8')}
+2026-03-06 00:40:27,738 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(id_1)s::UUID AND scans.user_id = %(user_id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:27,739 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(pk_1)s::UUID
+2026-03-06 00:40:27,739 INFO sqlalchemy.engine.Engine [generated in 0.00060s] {'id_1': 'a3afc65d-06dd-427a-bbba-74e9ee9e0fee', 'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:27,739 INFO sqlalchemy.engine.Engine [cached since 0.0112s ago] {'pk_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:27,741 INFO sqlalchemy.engine.Engine SELECT scan_modules.id AS scan_modules_id, scan_modules.scan_id AS scan_modules_scan_id, scan_modules.name AS scan_modules_name, scan_modules.display_name AS scan_modules_display_name, scan_modules.status AS scan_modules_status, scan_modules.progress AS scan_modules_progress, scan_modules.started_at AS scan_modules_started_at, scan_modules.completed_at AS scan_modules_completed_at, scan_modules.result_count AS scan_modules_result_count, scan_modules.error AS scan_modules_error 
+FROM scan_modules 
+WHERE scan_modules.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:27,741 INFO sqlalchemy.engine.Engine [generated in 0.00034s] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:27,743 INFO sqlalchemy.engine.Engine SELECT results.id AS results_id, results.scan_id AS results_scan_id, results.module_id AS results_module_id, results.module AS results_module, results.data_type AS results_data_type, results.data AS results_data, results.source AS results_source, results.source_url AS results_source_url, results.confidence AS results_confidence, results.timestamp AS results_timestamp 
+FROM results 
+WHERE results.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:27,743 INFO sqlalchemy.engine.Engine [generated in 0.00012s] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:27,749 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:37534 - "GET /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/details HTTP/1.1" 200 OK
+2026-03-06 00:40:30,756 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:30,756 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:30,756 INFO sqlalchemy.engine.Engine [cached since 13.09s ago] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:30,758 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(id_1)s::UUID AND scans.user_id = %(user_id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:30,758 INFO sqlalchemy.engine.Engine [cached since 3.02s ago] {'id_1': 'a3afc65d-06dd-427a-bbba-74e9ee9e0fee', 'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:30,759 INFO sqlalchemy.engine.Engine SELECT scan_modules.id AS scan_modules_id, scan_modules.scan_id AS scan_modules_scan_id, scan_modules.name AS scan_modules_name, scan_modules.display_name AS scan_modules_display_name, scan_modules.status AS scan_modules_status, scan_modules.progress AS scan_modules_progress, scan_modules.started_at AS scan_modules_started_at, scan_modules.completed_at AS scan_modules_completed_at, scan_modules.result_count AS scan_modules_result_count, scan_modules.error AS scan_modules_error 
+FROM scan_modules 
+WHERE scan_modules.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:30,759 INFO sqlalchemy.engine.Engine [cached since 3.018s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:30,760 INFO sqlalchemy.engine.Engine SELECT results.id AS results_id, results.scan_id AS results_scan_id, results.module_id AS results_module_id, results.module AS results_module, results.data_type AS results_data_type, results.data AS results_data, results.source AS results_source, results.source_url AS results_source_url, results.confidence AS results_confidence, results.timestamp AS results_timestamp 
+FROM results 
+WHERE results.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:30,760 INFO sqlalchemy.engine.Engine [cached since 3.017s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:30,761 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:37534 - "GET /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/details HTTP/1.1" 200 OK
+Sherlock output file not created
+2026-03-06 00:40:33,766 INFO sqlalchemy.engine.Engine UPDATE scan_modules SET status=%(status)s, progress=%(progress)s, completed_at=%(completed_at)s, result_count=%(result_count)s WHERE scan_modules.id = %(scan_modules_id)s::UUID
+2026-03-06 00:40:33,767 INFO sqlalchemy.engine.Engine [generated in 0.00016s] {'status': 'COMPLETED', 'progress': 100, 'completed_at': datetime.datetime(2026, 3, 6, 0, 40, 33, 766050), 'result_count': 10, 'scan_modules_id': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8')}
+2026-03-06 00:40:33,769 INFO sqlalchemy.engine.Engine INSERT INTO results (id, scan_id, module_id, module, data_type, data, source, source_url, confidence, timestamp) VALUES (%(id__0)s::UUID, %(scan_id__0)s::UUID, %(module_id__0)s::UUID, %(module__0)s, %(data_type__0)s, %(data__0)s, %(source__0)s, %(sou ... 1588 characters truncated ... (data_type__9)s, %(data__9)s, %(source__9)s, %(source_url__9)s, %(confidence__9)s, %(timestamp__9)s)
+2026-03-06 00:40:33,769 INFO sqlalchemy.engine.Engine [generated in 0.00020s (insertmanyvalues) 1/1 (unordered)] {'source__0': 'Username Check', 'data_type__0': 'social_profile', 'source_url__0': 'https://github.com/crossben', 'data__0': '{"platform": "GitHub", "username": "crossben", "url": "https://github.com/crossben", "exists": true, "status_code": 200}', 'scan_id__0': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__0': 'username_intel', 'confidence__0': 0.85, 'id__0': UUID('b19c9d8c-893f-4b09-9a59-465ce0847060'), 'timestamp__0': datetime.datetime(2026, 3, 6, 0, 40, 33, 769355), 'module_id__0': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__1': 'Username Check', 'data_type__1': 'social_profile', 'source_url__1': None, 'data__1': '{"platform": "Twitter", "username": "crossben", "url": "https://twitter.com/crossben", "exists": false, "status_code": 403}', 'scan_id__1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__1': 'username_intel', 'confidence__1': 0.6, 'id__1': UUID('ad075582-feb2-4191-9d25-9925e6e652b3'), 'timestamp__1': datetime.datetime(2026, 3, 6, 0, 40, 33, 769360), 'module_id__1': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__2': 'Username Check', 'data_type__2': 'social_profile', 'source_url__2': 'https://instagram.com/crossben', 'data__2': '{"platform": "Instagram", "username": "crossben", "url": "https://instagram.com/crossben", "exists": true, "status_code": 200}', 'scan_id__2': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__2': 'username_intel', 'confidence__2': 0.85, 'id__2': UUID('86518317-385a-458b-b11e-f10a8a93ce10'), 'timestamp__2': datetime.datetime(2026, 3, 6, 0, 40, 33, 769363), 'module_id__2': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__3': 'Username Check', 'data_type__3': 'social_profile', 'source_url__3': 'https://reddit.com/user/crossben', 'data__3': '{"platform": "Reddit", "username": "crossben", "url": "https://reddit.com/user/crossben", "exists": true, "status_code": 200}', 'scan_id__3': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__3': 'username_intel', 'confidence__3': 0.85, 'id__3': UUID('4e5920aa-2dca-452f-8dc3-a2187bd256cc'), 'timestamp__3': datetime.datetime(2026, 3, 6, 0, 40, 33, 769366), 'module_id__3': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__4': 'Username Check', 'data_type__4': 'social_profile', 'source_url__4': None, 'data__4': '{"platform": "LinkedIn", "username": "crossben", "url": "https://linkedin.com/in/crossben", "exists": false, "status_code": 405}', 'scan_id__4': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__4': 'username_intel', 'confidence__4': 0.6, 'id__4': UUID('049ec106-ff42-464b-ae63-104410795170'), 'timestamp__4': datetime.datetime(2026, 3, 6, 0, 40, 33, 769370), 'module_id__4': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__5': 'Username Check', 'data_type__5': 'social_profile', 'source_url__5': None, 'data__5': '{"platform": "Medium", "username": "crossben", "url": "https://medium.com/@crossben", "exists": false, "status_code": 403}', 'scan_id__5': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__5': 'username_intel', 'confidence__5': 0.6, 'id__5': UUID('42d7be4a-d2c5-41e4-b1fe-980528849b86'), 'timestamp__5': datetime.datetime(2026, 3, 6, 0, 40, 33, 769372), 'module_id__5': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__6': 'Username Check', 'data_type__6': 'social_profile', 'source_url__6': None, 'data__6': '{"platform": "dev.to", "username": "crossben", "url": "https://dev.to/crossben", "exists": false, "status_code": 404}', 'scan_id__6': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__6': 'username_intel', 'confidence__6': 0.6, 'id__6': UUID('fea7d6d5-a7ef-49ff-8dbe-06b0bf5f34b6'), 'timestamp__6': datetime.datetime(2026, 3, 6, 0, 40, 33, 769375), 'module_id__6': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__7': 'Username Check', 'data_type__7': 'social_profile', 'source_url__7': None, 'data__7': '{"platform": "Twitch", "username": "crossben", "url": "https://twitch.tv/crossben", "exists": false, "status_code": 405}', 'scan_id__7': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__7': 'username_intel', 'confidence__7': 0.6, 'id__7': UUID('48d1bbfa-3b10-4f3a-b140-d4c1867641f7'), 'timestamp__7': datetime.datetime(2026, 3, 6, 0, 40, 33, 769378), 'module_id__7': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__8': 'Username Check', 'data_type__8': 'social_profile', 'source_url__8': 'https://youtube.com/@crossben', 'data__8': '{"platform": "YouTube", "username": "crossben", "url": "https://youtube.com/@crossben", "exists": true, "status_code": 200}', 'scan_id__8': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__8': 'username_intel', 'confidence__8': 0.85, 'id__8': UUID('44228971-ae7d-441a-b080-5278077ae48e'), 'timestamp__8': datetime.datetime(2026, 3, 6, 0, 40, 33, 769380), 'module_id__8': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8'), 'source__9': 'Username Check', 'data_type__9': 'social_profile', 'source_url__9': 'https://tiktok.com/@crossben', 'data__9': '{"platform": "TikTok", "username": "crossben", "url": "https://tiktok.com/@crossben", "exists": true, "status_code": 200}', 'scan_id__9': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee'), 'module__9': 'username_intel', 'confidence__9': 0.85, 'id__9': UUID('c93ee934-40ba-4568-b445-9d8ed8fe18ae'), 'timestamp__9': datetime.datetime(2026, 3, 6, 0, 40, 33, 769383), 'module_id__9': UUID('277da9e9-6f9a-4a61-a525-3cc8437464c8')}
+2026-03-06 00:40:33,772 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:33,772 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:33,772 INFO sqlalchemy.engine.Engine [cached since 16.1s ago] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:33,773 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(id_1)s::UUID AND scans.user_id = %(user_id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:33,773 INFO sqlalchemy.engine.Engine [cached since 6.035s ago] {'id_1': 'a3afc65d-06dd-427a-bbba-74e9ee9e0fee', 'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:33,774 INFO sqlalchemy.engine.Engine SELECT scan_modules.id AS scan_modules_id, scan_modules.scan_id AS scan_modules_scan_id, scan_modules.name AS scan_modules_name, scan_modules.display_name AS scan_modules_display_name, scan_modules.status AS scan_modules_status, scan_modules.progress AS scan_modules_progress, scan_modules.started_at AS scan_modules_started_at, scan_modules.completed_at AS scan_modules_completed_at, scan_modules.result_count AS scan_modules_result_count, scan_modules.error AS scan_modules_error 
+FROM scan_modules 
+WHERE scan_modules.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:33,774 INFO sqlalchemy.engine.Engine COMMIT
+2026-03-06 00:40:33,774 INFO sqlalchemy.engine.Engine [cached since 6.034s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:33,775 INFO sqlalchemy.engine.Engine SELECT results.id AS results_id, results.scan_id AS results_scan_id, results.module_id AS results_module_id, results.module AS results_module, results.data_type AS results_data_type, results.data AS results_data, results.source AS results_source, results.source_url AS results_source_url, results.confidence AS results_confidence, results.timestamp AS results_timestamp 
+FROM results 
+WHERE results.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:33,775 INFO sqlalchemy.engine.Engine [cached since 6.032s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:33,776 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:37534 - "GET /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/details HTTP/1.1" 200 OK
+2026-03-06 00:40:33,777 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:33,778 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(pk_1)s::UUID
+2026-03-06 00:40:33,778 INFO sqlalchemy.engine.Engine [generated in 0.00011s] {'pk_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:33,779 INFO sqlalchemy.engine.Engine UPDATE scans SET progress=%(progress)s, updated_at=%(updated_at)s WHERE scans.id = %(scans_id)s::UUID
+2026-03-06 00:40:33,780 INFO sqlalchemy.engine.Engine [generated in 0.00010s] {'progress': 100, 'updated_at': datetime.datetime(2026, 3, 6, 0, 40, 33, 779955), 'scans_id': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:33,780 INFO sqlalchemy.engine.Engine COMMIT
+2026-03-06 00:40:33,783 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:33,784 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.started_at AS scans_started_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(pk_1)s::UUID
+2026-03-06 00:40:33,784 INFO sqlalchemy.engine.Engine [generated in 0.00010s] {'pk_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:33,785 INFO sqlalchemy.engine.Engine UPDATE scans SET status=%(status)s, progress=%(progress)s, completed_at=%(completed_at)s, updated_at=%(updated_at)s WHERE scans.id = %(scans_id)s::UUID
+2026-03-06 00:40:33,785 INFO sqlalchemy.engine.Engine [generated in 0.00010s] {'status': 'COMPLETED', 'progress': 100, 'completed_at': datetime.datetime(2026, 3, 6, 0, 40, 33, 783024), 'updated_at': datetime.datetime(2026, 3, 6, 0, 40, 33, 785348), 'scans_id': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:33,786 INFO sqlalchemy.engine.Engine COMMIT
+2026-03-06 00:40:36,784 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:36,784 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:36,784 INFO sqlalchemy.engine.Engine [cached since 19.12s ago] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:36,786 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(id_1)s::UUID AND scans.user_id = %(user_id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:36,786 INFO sqlalchemy.engine.Engine [cached since 9.048s ago] {'id_1': 'a3afc65d-06dd-427a-bbba-74e9ee9e0fee', 'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:36,787 INFO sqlalchemy.engine.Engine SELECT scan_modules.id AS scan_modules_id, scan_modules.scan_id AS scan_modules_scan_id, scan_modules.name AS scan_modules_name, scan_modules.display_name AS scan_modules_display_name, scan_modules.status AS scan_modules_status, scan_modules.progress AS scan_modules_progress, scan_modules.started_at AS scan_modules_started_at, scan_modules.completed_at AS scan_modules_completed_at, scan_modules.result_count AS scan_modules_result_count, scan_modules.error AS scan_modules_error 
+FROM scan_modules 
+WHERE scan_modules.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:36,787 INFO sqlalchemy.engine.Engine [cached since 9.046s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:36,788 INFO sqlalchemy.engine.Engine SELECT results.id AS results_id, results.scan_id AS results_scan_id, results.module_id AS results_module_id, results.module AS results_module, results.data_type AS results_data_type, results.data AS results_data, results.source AS results_source, results.source_url AS results_source_url, results.confidence AS results_confidence, results.timestamp AS results_timestamp 
+FROM results 
+WHERE results.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:36,788 INFO sqlalchemy.engine.Engine [cached since 9.045s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:36,790 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:37534 - "GET /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/details HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60354 - "OPTIONS /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/graph HTTP/1.1" 200 OK
+2026-03-06 00:40:44,934 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-03-06 00:40:44,934 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.full_name AS users_full_name, users.avatar_url AS users_avatar_url, users.plan AS users_plan, users.is_active AS users_is_active, users.is_superuser AS users_is_superuser, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.id = %(id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:44,934 INFO sqlalchemy.engine.Engine [cached since 27.27s ago] {'id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:44,936 INFO sqlalchemy.engine.Engine SELECT scans.id AS scans_id, scans.user_id AS scans_user_id, scans.target_type AS scans_target_type, scans.target_value AS scans_target_value, scans.scan_type AS scans_scan_type, scans.status AS scans_status, scans.progress AS scans_progress, scans.started_at AS scans_started_at, scans.completed_at AS scans_completed_at, scans.created_at AS scans_created_at, scans.updated_at AS scans_updated_at, scans.error_message AS scans_error_message 
+FROM scans 
+WHERE scans.id = %(id_1)s::UUID AND scans.user_id = %(user_id_1)s::UUID 
+ LIMIT %(param_1)s
+2026-03-06 00:40:44,936 INFO sqlalchemy.engine.Engine [cached since 17.2s ago] {'id_1': 'a3afc65d-06dd-427a-bbba-74e9ee9e0fee', 'user_id_1': 'e5587f89-f632-47fd-b5b1-d218c2b4684c', 'param_1': 1}
+2026-03-06 00:40:44,937 INFO sqlalchemy.engine.Engine SELECT results.id AS results_id, results.scan_id AS results_scan_id, results.module_id AS results_module_id, results.module AS results_module, results.data_type AS results_data_type, results.data AS results_data, results.source AS results_source, results.source_url AS results_source_url, results.confidence AS results_confidence, results.timestamp AS results_timestamp 
+FROM results 
+WHERE results.scan_id = %(scan_id_1)s::UUID
+2026-03-06 00:40:44,937 INFO sqlalchemy.engine.Engine [cached since 17.19s ago] {'scan_id_1': UUID('a3afc65d-06dd-427a-bbba-74e9ee9e0fee')}
+2026-03-06 00:40:44,939 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:60364 - "GET /api/v1/scans/a3afc65d-06dd-427a-bbba-74e9ee9e0fee/graph HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9952]
