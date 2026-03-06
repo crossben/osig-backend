@@ -8,7 +8,7 @@ Sherlock can check 300+ social media platforms to find where a username exists,
 providing URLs to discovered profiles.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import httpx
 from app.osint.base import BaseOSINTModule, OSINTResult
 

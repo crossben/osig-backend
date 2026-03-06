@@ -8,7 +8,7 @@ This module gathers intelligence on email addresses using free OSINT tools:
 All findings are returned in a standardized format for storage and display.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import asyncio
 import hashlib
 import httpx
