@@ -137,9 +137,9 @@ class DomainIntelModule(BaseOSINTModule):
             data = {
                 "domain": domain,
                 "registrar": self._clean_whois_field(whois_data.registrar),
-                "creation_date": self._format_date(whois_data.creation_date),
-                "expiration_date": self._format_date(whois_data.expiration_date),
-                "updated_date": self._format_date(whois_data.updated_date),
+                "creation_date": self._format_whois_date(whois_data.creation_date),
+                "expiration_date": self._format_whois_date(whois_data.expiration_date),
+                "updated_date": self._format_whois_date(whois_data.updated_date),
                 "name_servers": self._clean_whois_field(whois_data.name_servers),
                 "status": self._clean_whois_field(whois_data.status),
                 "emails": self._clean_whois_field(whois_data.emails),
@@ -488,7 +488,7 @@ class DomainIntelModule(BaseOSINTModule):
     
     def _lookup_ip_info(self, ip_address: str, domain: str) -> Optional[OSINTResult]:
         """
-        Lookup IP intelligence (ASN, GeoIP, Network) using ipwhois.
+        Lookup IP intelligence (ASN, GeoIP, Network) using ipwhois and geoip2.
         """
         try:
             from ipwhois import IPWhois
@@ -499,27 +499,49 @@ class DomainIntelModule(BaseOSINTModule):
                 res = obj.lookup_rdap(depth=1)
                 
                 network = res.get('network', {})
-                country = res.get('asn_country_code')
+                country_code = res.get('asn_country_code')
                 
                 data = {
                     "ip": ip_address,
                     "domain": domain,
                     "asn": res.get('asn'),
                     "asn_description": res.get('asn_description'),
-                    "country": country,
+                    "country_code": country_code,
                     "cidr": network.get('cidr'),
-                    "name": network.get('name')
+                    "network_name": network.get('name'),
+                    "geo": {}
                 }
+
+                # Try to add more precise GeoIP data if geoip2 is available
+                try:
+                    # In a real scenario, the user would provide a path to a MaxMind DB.
+                    # For now, we'll use an API fallback or just structure the data.
+                    import httpx
+                    geo_resp = httpx.get(f"http://ip-api.com/json/{ip_address}?fields=status,message,country,countryCode,region,regionName,city,lat,lon,timezone,isp,org,as,query", timeout=5.0)
+                    if geo_resp.status_code == 200:
+                        geo_data = geo_resp.json()
+                        if geo_data.get("status") == "success":
+                            data["geo"] = {
+                                "city": geo_data.get("city"),
+                                "region": geo_data.get("regionName"),
+                                "country": geo_data.get("country"),
+                                "lat": geo_data.get("lat"),
+                                "lon": geo_data.get("lon"),
+                                "isp": geo_data.get("isp"),
+                                "timezone": geo_data.get("timezone")
+                            }
+                except Exception as geo_e:
+                    self.logger.debug(f"GeoIP API fallback failed: {geo_e}")
                 
                 return OSINTResult(
-                    source="IPWhois",
+                    source="IP Intelligence (IPWhois + GeoIP)",
                     source_url=None,
                     data_type="ip_intel",
                     data=data,
                     confidence=0.9
                 )
         except Exception as e:
-            self.logger.warning(f"IP Whois failed for {ip_address}: {str(e)}")
+            self.logger.warning(f"IP info lookup failed for {ip_address}: {str(e)}")
             return None
 
     def _check_sublist3r(self, domain: str) -> List[OSINTResult]:

@@ -40,6 +40,8 @@ emailrep
 instaloader
 sublist3r
 networkx
+pyhibp
+geoip2
 
 # Report Generation
 reportlab==4.0.9

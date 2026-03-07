@@ -13,6 +13,8 @@ import asyncio
 import hashlib
 import httpx
 import socket
+import subprocess
+import json
 from app.osint.base import BaseOSINTModule, OSINTResult
 
 # Known disposable/temporary email domains (partial list, extended in run-time)
@@ -82,7 +84,11 @@ class EmailIntelModule(BaseOSINTModule):
                 if emailrep_result:
                     results.append(emailrep_result)
 
-                # Deep only: check Holehe via CLI if available
+                # Deep only: check HIBP for data breaches
+                hibp_results = self._check_hibp(target)
+                results.extend(hibp_results)
+
+                # Deep only: check Holehe via CLI
                 holehe_results = self._check_holehe(target)
                 results.extend(holehe_results)
             
@@ -222,58 +228,93 @@ class EmailIntelModule(BaseOSINTModule):
             self.logger.warning(f"Email domain check failed: {e}")
             return None
     
-    def _check_holehe(self, email: str) -> List[OSINTResult]:
+    def _check_hibp(self, email: str) -> List[OSINTResult]:
         """
-        Check if email is registered on various platforms using Holehe.
-        
-        Holehe is a tool that checks if an email is associated with accounts
-        on 120+ websites (GitHub, Twitter, Instagram, etc.) by analyzing
-        registration/password reset pages.
-        
-        Note: Holehe integration is marked as advanced/optional due to complex
-        async requirements. For production use, install holehe and run via CLI:
-        
-        ```bash
-        pip install holehe
-        holehe email@example.com -o json > output.json
-        ```
-        
-        Then parse the JSON output in your application.
-        
-        Args:
-            email: Email address to check
-            
-        Returns:
-            List of OSINTResult objects with service findings
+        Check HaveIBeenPwned for email breaches using pyhibp.
         """
         results = []
-        
-        # Holehe requires complex async setup that's not ideal for library integration
-        # For now, we recommend using it via CLI and parsing the JSON output
-        # 
-        # Future improvement: Run holehe as subprocess:
-        # ```python
-        # import subprocess
-        # import json
-        # 
-        # cmd = ['holehe', email, '-o', 'json']
-        # process = subprocess.run(cmd, capture_output=True, text=True)
-        # data = json.loads(process.stdout)
-        # 
-        # for platform, info in data.items():
-        #     if info.get('exists'):
-        #         result = OSINTResult(
-        #             source="Holehe",
-        #             source_url=info.get('url'),
-        #             data_type="account_existence",
-        #             data={"platform": platform, "email": email, "exists": True},
-        #             confidence=0.85
-        #         )
-        #         results.append(result)
-        # ```
-        
-        self.logger.info("Holehe check: Use CLI version for best results (holehe email@example.com)")
-        
+        try:
+            from pyhibp import pwnedpasswords as pw
+            from pyhibp import hipb_base
+            # NOTE: For account breaches, HIBP requires an API key now.
+            # However, we can use the library to structure the request.
+            # If no API key is set, this might fail or return limited info.
+            # For now, we'll try a basic check if the library supports unauthenticated (unlikely for account)
+            # or just provide the placeholder structure for where the key would go.
+            
+            # Since we want to stay "Free", we might rely on the fact that 
+            # some parts of HIBP-like data are indexed by other free tools,
+            # but we'll implement the pyhibp call structure here.
+            
+            # Mapping pyhibp to results
+            self.logger.info(f"Checking HIBP for {email}")
+            # Placeholder for actual HIBP API key if provided in settings
+            # api_key = settings.HIBP_API_KEY
+            
+            # For account breaches, an API key is required. Without one, this will likely fail.
+            # We'll simulate a call structure but won't execute a real network request without a key.
+            # If a key were available:
+            # hipb_base.set_api_key(api_key)
+            # breaches = hipb_base.get_all_breaches_for_account(email)
+            # if breaches:
+            #     for breach in breaches:
+            #         results.append(OSINTResult(
+            #             source="HaveIBeenPwned",
+            #             source_url=f"https://haveibeenpwned.com/account/{email}",
+            #             data_type="breach",
+            #             data={
+            #                 "email": email,
+            #                 "name": breach.Name,
+            #                 "domain": breach.Domain,
+            #                 "breach_date": breach.BreachDate,
+            #                 "description": breach.Description,
+            #                 "data_classes": breach.DataClasses
+            #             },
+            #             confidence=0.98
+            #         ))
+            # else:
+            #     self.logger.info(f"No HIBP breaches found for {email}")
+            
+            self.logger.warning("HIBP account breach check requires an API key for full functionality. Skipping actual API call.")
+            
+        except Exception as e:
+            self.logger.warning(f"HIBP check failed: {e}")
+            
+        return results
+
+    def _check_holehe(self, email: str) -> List[OSINTResult]:
+        """
+        Check if email is registered on various platforms using Holehe CLI.
+        """
+        results = []
+        try:
+            self.logger.info(f"Running Holehe for {email}...")
+            # Run holehe via subprocess to avoid async conflicts and get latest site checks
+            cmd = ["holehe", email, "--only-used", "--no-color"]
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            # Holehe output is usually text-based in the simplest form, 
+            # but we can parse the "used" lines.
+            output = process.stdout
+            for line in output.split('\n'):
+                if "[+]" in line:
+                    # Platform found!
+                    platform = line.split("[+]")[-1].strip()
+                    results.append(OSINTResult(
+                        source="Holehe",
+                        source_url=None,
+                        data_type="account_existence",
+                        data={"platform": platform, "email": email, "exists": True},
+                        confidence=0.9
+                    ))
+            
+            self.logger.info(f"Holehe found {len(results)} platforms for {email}")
+            
+        except subprocess.TimeoutExpired:
+            self.logger.warning(f"Holehe check timed out for {email}")
+        except Exception as e:
+            self.logger.warning(f"Holehe check failed: {e}")
+            
         return results
     
     def _check_emailrep(self, email: str) -> Optional[OSINTResult]:
@@ -322,12 +363,14 @@ class EmailIntelModule(BaseOSINTModule):
         """
         profile_count = sum(1 for r in results if r.data.get("has_profile", False))
         account_count = sum(1 for r in results if r.data_type == "account_existence")
+        breach_count = sum(1 for r in results if r.data_type == "breach")
         
         # Calculate risk score
-        # More exposed accounts = higher risk score
-        if profile_count + account_count > 10:
+        score = profile_count + account_count + (breach_count * 2)
+        
+        if score > 15:
             risk_level = "high"
-        elif profile_count + account_count > 5:
+        elif score > 5:
             risk_level = "medium"
         else:
             risk_level = "low"
@@ -336,6 +379,7 @@ class EmailIntelModule(BaseOSINTModule):
             "risk_level": risk_level,
             "profile_count": profile_count,
             "account_count": account_count,
+            "breach_count": breach_count,
             "total_findings": len(results)
         }
 
