@@ -27,14 +27,18 @@ RUN pip install --upgrade pip \
 # ── Stage 2: runtime image ───────────────────────────────────
 FROM python:3.11-slim AS runtime
 
-# Runtime system deps
+# Install runtime system dependencies, including nmap for python-nmap
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    nmap \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
+
+# Download Spacy basic english core model as root before switching user
+RUN python3 -m spacy download en_core_web_sm
 
 # Create app user (no root in production)
 RUN useradd -m -u 1001 appuser

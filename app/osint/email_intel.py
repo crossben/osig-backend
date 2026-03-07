@@ -91,6 +91,10 @@ class EmailIntelModule(BaseOSINTModule):
                 # Deep only: check Holehe via CLI
                 holehe_results = self._check_holehe(target)
                 results.extend(holehe_results)
+                
+                # Deep only: check h8mail via CLI for leaks
+                h8mail_results = self._check_h8mail(target)
+                results.extend(h8mail_results)
             
             self.log_success(len(results))
             
@@ -314,6 +318,51 @@ class EmailIntelModule(BaseOSINTModule):
             self.logger.warning(f"Holehe check timed out for {email}")
         except Exception as e:
             self.logger.warning(f"Holehe check failed: {e}")
+            
+        return results
+        
+    def _check_h8mail(self, email: str) -> List[OSINTResult]:
+        """
+        Check for breached credentials and leaks using h8mail CLI.
+        """
+        results = []
+        try:
+            self.logger.info(f"Running h8mail for {email}...")
+            # Run h8mail quietly and output JSON
+            import tempfile
+            import os
+            
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output_file = os.path.join(tmpdir, "h8mail_results.json")
+                cmd = ["h8mail", "-t", email, "-q", "-j", output_file]
+                
+                # This can take time depending on local/remote APIs
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if os.path.exists(output_file):
+                    with open(output_file, 'r') as f:
+                        data = json.load(f)
+                    
+                    # h8mail JSON structure: {'targets': [{'target': 'email', 'data': [findings]}]}
+                    if 'targets' in data and len(data['targets']) > 0:
+                        target_data = data['targets'][0].get('data', [])
+                        
+                        # Only create a result if actual leaks were found
+                        if target_data and len(target_data) > 0 and type(target_data[0]) is not str:
+                            results.append(OSINTResult(
+                                source="h8mail",
+                                source_url=None,
+                                data_type="breach",
+                                data={"email": email, "leaks_found": len(target_data), "raw_findings": target_data[:5]}, # Store top 5
+                                confidence=0.85
+                            ))
+                            self.logger.info(f"h8mail found {len(target_data)} leak signals for {email}")
+                        else:
+                            self.logger.info(f"h8mail found no specific leak data for {email}")
+        except subprocess.TimeoutExpired:
+            self.logger.warning(f"h8mail check timed out for {email}")
+        except Exception as e:
+            self.logger.warning(f"h8mail check failed: {e}")
             
         return results
     

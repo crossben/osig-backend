@@ -42,6 +42,17 @@ sublist3r
 networkx
 pyhibp
 geoip2
+validators
+tldextract
+beautifulsoup4
+lxml
+python-nmap
+sherlock-project
+h8mail
+fake-useragent
+aiodns
+spacy
+rapidfuzz
 
 # Report Generation
 reportlab==4.0.9

@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 import logging
+import validators
 
 # Set up logging for OSINT modules
 logger = logging.getLogger(__name__)
@@ -109,11 +110,11 @@ class BaseOSINTModule(ABC):
     
     def validate_target(self, target: str, expected_type: str) -> bool:
         """
-        Validate that the target matches expected format.
+        Validate that the target matches expected format using the `validators` library.
         
         Args:
             target: The target string to validate
-            expected_type: Type of target ('email', 'username', 'domain', 'phone')
+            expected_type: Type of target ('email', 'username', 'domain', 'phone', 'ip', 'url')
             
         Returns:
             True if valid, False otherwise
@@ -121,15 +122,25 @@ class BaseOSINTModule(ABC):
         if not target or not target.strip():
             return False
         
-        # Basic validation based on type
-        if expected_type == "email":
-            return "@" in target and "." in target.split("@")[-1]
-        elif expected_type == "username":
-            return len(target) >= 3 and target.replace("_", "").replace("-", "").isalnum()
-        elif expected_type == "domain":
-            return "." in target and " " not in target
-        elif expected_type == "phone":
-            # Basic check for digits and common phone characters
-            return any(c.isdigit() for c in target)
+        target = target.strip()
         
+        try:
+            if expected_type == "email":
+                return bool(validators.email(target))
+            elif expected_type == "domain":
+                return bool(validators.domain(target))
+            elif expected_type == "ip":
+                return bool(validators.ipv4(target) or validators.ipv6(target))
+            elif expected_type == "url":
+                return bool(validators.url(target))
+            elif expected_type == "username":
+                # Basic string validation for social usernames
+                return len(target) >= 3 and target.replace("_", "").replace("-", "").replace(".", "").isalnum()
+            elif expected_type == "phone":
+                # Basic check; phonenumbers library will do the actual robust validation
+                digits = [c for c in target if c.isdigit()]
+                return len(digits) >= 5
+        except Exception:
+            return False
+            
         return True

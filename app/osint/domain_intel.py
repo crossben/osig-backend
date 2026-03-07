@@ -65,6 +65,10 @@ class DomainIntelModule(BaseOSINTModule):
             return results
         
         try:
+            domain_parts = self._extract_domain_parts(target)
+            if domain_parts:
+                results.append(domain_parts)
+
             whois_results = self._lookup_whois(target)
             if whois_results:
                 results.append(whois_results)
@@ -89,8 +93,18 @@ class DomainIntelModule(BaseOSINTModule):
                 ip_res = self._lookup_ip_info(ip, target)
                 if ip_res:
                     results.append(ip_res)
+                    
+                # Scan ports for each resolved IP
+                port_scan_res = self._scan_ports(ip, target)
+                if port_scan_res:
+                    results.append(port_scan_res)
 
             if deep:
+                # Deep: scrape homepage for basic meta info and emails
+                scrape_res = self._scrape_homepage(target)
+                if scrape_res:
+                    results.append(scrape_res)
+
                 # Deep: certificate transparency logs via crt.sh
                 crt_results = self._check_crtsh(target)
                 results.extend(crt_results)
@@ -169,79 +183,66 @@ class DomainIntelModule(BaseOSINTModule):
     
     def _lookup_dns_records(self, domain: str) -> List[OSINTResult]:
         """
-        Query DNS records for the domain.
-        
-        DNS records tell us:
-        - A records: IP addresses the domain points to
-        - MX records: Mail servers (where email is sent)
-        - TXT records: Text data (often used for verification, SPF, DKIM)
-        - NS records: Name servers (DNS servers for this domain)
-        - CNAME records: Aliases (alternative names for the domain)
-        
-        Args:
-            domain: Domain to query
-            
-        Returns:
-            List of OSINTResult objects, one for each record type found
+        Query DNS records for the domain asynchronously using aiodns.
         """
         results = []
-        
-        # Record types we want to query
         record_types = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA']
         
-        for record_type in record_types:
+        async def fetch_dns(resolver, rtype):
             try:
-                # Query DNS for this record type
-                answers = dns.resolver.resolve(domain, record_type)
-                
-                # Extract the data from DNS response
+                answers = await resolver.query(domain, rtype)
                 records = []
-                for rdata in answers:
-                    # Format depends on record type
-                    if record_type == 'MX':
-                        # MX records have priority and exchange
-                        records.append({
-                            "priority": rdata.preference,
-                            "exchange": str(rdata.exchange)
-                        })
+                for ans in answers:
+                    if rtype == 'MX':
+                        records.append({"priority": ans.priority, "exchange": ans.host})
+                    elif rtype == 'SOA':
+                        records.append(f"{ans.nsname} {ans.hostmaster}")
+                    elif rtype in ['A', 'AAAA', 'NS', 'CNAME']:
+                        records.append(ans.host)
+                    elif rtype == 'TXT':
+                        records.append(ans.text)
                     else:
-                        # Most other records are simple strings
-                        records.append(str(rdata))
-                
-                # Create result for this record type
-                result = OSINTResult(
-                    source="DNS",
-                    source_url=None,
-                    data_type="dns_record",
-                    data={
-                        "domain": domain,
-                        "record_type": record_type,
-                        "records": records,
-                        "count": len(records)
-                    },
-                    confidence=0.99  # DNS is authoritative
-                )
-                results.append(result)
-                
-                self.logger.info(f"Found {len(records)} {record_type} records for {domain}")
-                
-            except dns.resolver.NXDOMAIN:
-                # Domain doesn't exist
-                self.logger.warning(f"Domain {domain} does not exist")
-                break  # No point checking other record types
-            except dns.resolver.NoAnswer:
-                # No records of this type (normal, not all domains have all record types)
-                self.logger.debug(f"No {record_type} records for {domain}")
-                continue
-            except dns.exception.Timeout:
-                # DNS query timed out
-                self.logger.warning(f"DNS timeout for {record_type} records of {domain}")
-                continue
-            except Exception as e:
-                # Other DNS errors
-                self.logger.error(f"DNS query failed for {record_type}: {str(e)}")
-                continue
+                        records.append(str(ans))
+                return rtype, records
+            except Exception:
+                return rtype, []
         
+        async def run_queries():
+            import aiodns
+            import asyncio
+            resolver = aiodns.DNSResolver(timeout=2.0)
+            tasks = [fetch_dns(resolver, t) for t in record_types]
+            return await asyncio.gather(*tasks)
+            
+        try:
+            import asyncio
+            # Run async queries in the sync context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            queries_results = loop.run_until_complete(run_queries())
+            loop.close()
+            
+            for rtype, records in queries_results:
+                if records:
+                    results.append(OSINTResult(
+                        source="DNS (aiodns)",
+                        source_url=None,
+                        data_type="dns_record",
+                        data={
+                            "domain": domain,
+                            "record_type": rtype,
+                            "records": records,
+                            "count": len(records)
+                        },
+                        confidence=0.99
+                    ))
+                    self.logger.info(f"Found {len(records)} {rtype} records for {domain}")
+                    
+        except ImportError:
+            self.logger.warning("aiodns not installed, skipping fast DNS lookup.")
+        except Exception as e:
+            self.logger.error(f"DNS queries failed: {e}")
+            
         return results
     
     def _check_subdomains(self, domain: str) -> List[OSINTResult]:
@@ -599,6 +600,200 @@ class DomainIntelModule(BaseOSINTModule):
             return date_field.isoformat()
         
         return str(date_field) if date_field else None
+
+    def _extract_domain_parts(self, domain: str) -> Optional[OSINTResult]:
+        try:
+            import tldextract
+            ext = tldextract.extract(domain)
+            data = {
+                "subdomain": ext.subdomain,
+                "domain": ext.domain,
+                "suffix": ext.suffix,
+                "registered_domain": ext.registered_domain,
+                "fqdn": ext.fqdn
+            }
+            return OSINTResult(
+                source="TLDExtract",
+                source_url=None,
+                data_type="domain_parts",
+                data=data,
+                confidence=1.0
+            )
+        except Exception as e:
+            self.logger.warning(f"TLDExtract failed for {domain}: {e}")
+            return None
+
+    def _scrape_homepage(self, domain: str) -> Optional[OSINTResult]:
+        try:
+            import httpx
+            from bs4 import BeautifulSoup
+            from fake_useragent import UserAgent
+            import spacy
+            from rapidfuzz import fuzz
+            import tldextract
+            import warnings
+            
+            # 1. Evasive Scraping Setup
+            ua = UserAgent()
+            random_ua = ua.random
+            
+            urls_to_try = [f"https://{domain}", f"http://{domain}"]
+            html_content = None
+            final_url = None
+            
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                with httpx.Client(timeout=10.0, follow_redirects=True, verify=False) as client:
+                    for url in urls_to_try:
+                        try:
+                            resp = client.get(url, headers={"User-Agent": random_ua})
+                            if resp.status_code == 200:
+                                html_content = resp.text
+                                final_url = str(resp.url)
+                                break
+                        except Exception:
+                            continue
+            
+            if not html_content:
+                return None
+                
+            # 2. BeautifulSoup Parsing
+            soup = BeautifulSoup(html_content, 'lxml')
+            
+            title = soup.title.string.strip() if soup.title and soup.title.string else None
+            
+            meta_desc = None
+            desc_tag = soup.find('meta', attrs={'name': 'description'})
+            if desc_tag and desc_tag.get('content'):
+                meta_desc = desc_tag['content'].strip()
+                
+            emails = set()
+            for a in soup.find_all('a', href=True):
+                if a.get('href') and a['href'].startswith('mailto:'):
+                    emails.add(a['href'].replace('mailto:', '').split('?')[0])
+            
+            # 3. NLP Entity Extraction (Spacy)
+            try:
+                nlp = spacy.load("en_core_web_sm")
+            except Exception:
+                # Silent fallback if model is somehow missing
+                spacy.cli.download("en_core_web_sm")
+                nlp = spacy.load("en_core_web_sm")
+                
+            # Extract plain text from body, ignoring scripts/styles
+            for script in soup(["script", "style", "noscript", "meta"]):
+                script.decompose()
+            text = soup.get_text(separator=' ', strip=True)
+            
+            # Analyze up to first 5000 characters to save processing time
+            doc = nlp(text[:5000])
+            
+            entities_found = {"ORG": set(), "PERSON": set(), "GPE": set()}
+            for ent in doc.ents:
+                if ent.label_ in entities_found and len(ent.text) > 2:
+                    entities_found[ent.label_].add(ent.text)
+                    
+            nlp_data = {
+                "organizations": list(entities_found["ORG"])[:10],
+                "people": list(entities_found["PERSON"])[:10],
+                "locations": list(entities_found["GPE"])[:10]
+            }
+            
+            # 4. Phishing Risk Analysis (RapidFuzz)
+            # We check if the typed domain name appears in the extracted Organizations
+            ext = tldextract.extract(domain)
+            base_name = ext.domain.lower()
+            
+            is_phishing_risk = False
+            highest_match = 0
+            
+            if len(entities_found["ORG"]) > 0:
+                for org in entities_found["ORG"]:
+                    # Clean org name slightly
+                    clean_org = org.lower().replace(',', '').replace('.', '').replace(' inc', '').replace(' llc', '').strip()
+                    # Calculate similarity between domain base name and scraped organization
+                    similarity = fuzz.ratio(base_name, clean_org)
+                    if similarity > highest_match:
+                        highest_match = similarity
+                        
+                # If they claim to be an org but the similarity is very low, it might be an impersonator
+                # Note: This is a basic generic heuristic demonstrating rapidfuzz
+                if highest_match < 40 and len(base_name) > 3:
+                     is_phishing_risk = True
+                     
+            data = {
+                "url": final_url,
+                "title": title,
+                "meta_description": meta_desc,
+                "visible_emails": list(emails),
+                "nlp_entities": nlp_data,
+                "phishing_analysis": {
+                    "base_domain": base_name,
+                    "highest_org_match": round(highest_match, 2),
+                    "potential_risk": is_phishing_risk
+                }
+            }
+            
+            return OSINTResult(
+                source="AI Homepage Scraper",
+                source_url=final_url,
+                data_type="webpage_info",
+                data=data,
+                confidence=0.9
+            )
+        except Exception as e:
+            self.logger.warning(f"Homepage scraping/NLP failed for {domain}: {e}")
+            return None
+
+    def _scan_ports(self, ip_address: str, domain: str) -> Optional[OSINTResult]:
+        try:
+            import nmap
+            nm = nmap.PortScanner()
+            # Scan top web/mail/system ports quickly without ping (-Pn)
+            ports = "21,22,25,53,80,110,143,443,465,587,993,995,3306,5432,8080"
+            nm.scan(hosts=ip_address, arguments=f'-p {ports} -Pn -T4 --host-timeout 30s')
+            
+            if ip_address not in nm.all_hosts():
+                return None
+                
+            open_ports = []
+            host_data = nm[ip_address]
+            
+            for proto in host_data.all_protocols():
+                ports_data = host_data[proto].keys()
+                for port in sorted(ports_data):
+                    state = host_data[proto][port]['state']
+                    if state == 'open':
+                        open_ports.append({
+                            "port": port,
+                            "protocol": proto,
+                            "name": host_data[proto][port]['name'],
+                            "product": host_data[proto][port].get('product', '')
+                        })
+            
+            if not open_ports:
+                return None
+                
+            data = {
+                "ip": ip_address,
+                "domain": domain,
+                "open_ports": open_ports,
+                "total_open": len(open_ports)
+            }
+            
+            return OSINTResult(
+                source="Nmap Port Scan",
+                source_url=None,
+                data_type="open_ports",
+                data=data,
+                confidence=0.95
+            )
+        except ImportError:
+            self.logger.warning("python-nmap is not installed. Port scanning disabled.")
+            return None
+        except Exception as e:
+            self.logger.warning(f"Port scan failed for {ip_address}: {e}")
+            return None
 
 
 # Create module instance for easy import
