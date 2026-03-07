@@ -174,76 +174,60 @@ class UsernameIntelModule(BaseOSINTModule):
         
         try:
             import subprocess
-            import json
-            import tempfile
-            import os
+            import re
             
-            # Check if sherlock is installed/available
-            # We'll try to run it as a module first
-            try:
-                # Create temp directory for output
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    output_file = os.path.join(tmpdir, f"{username}.json")
-                    
-                    # Run Sherlock as Python module
-                    # -o: output directory
-                    # --json: JSON output format
-                    # --timeout: reasonable timeout per site (5 seconds)
-                    # --no-color: disable color codes in output
-                    cmd = [
-                        'python3', '-m', 'sherlock',
-                        username,
-                        '-o', tmpdir,
-                        '--json', output_file,
-                        '--timeout', '5',
-                        '--no-color'
-                    ]
-                    
-                    # Run with timeout to prevent hanging
-                    # Sherlock can take a while with 300+ sites
-                    process = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=120  # 2 minute timeout
-                    )
-                    
-                    # Check if output file was created
-                    if os.path.exists(output_file):
-                        # Read and parse JSON output
-                        with open(output_file, 'r') as f:
-                            sherlock_data = json.load(f)
+            # Check if sherlock is available
+            cmd = [
+                'sherlock',
+                username,
+                '--timeout', '5',
+                '--print-found',
+                '--no-color'
+            ]
+            
+            # Run with timeout to prevent hanging
+            # Sherlock can take a while with 300+ sites
+            process = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=180  # 3 minute timeout
+            )
+            
+            # Parse the stdout for [+] Platform: URL
+            # Example: "[+] Twitch: https://twitch.tv/username"
+            for line in process.stdout.splitlines():
+                line = line.strip()
+                if line.startswith('[+]'):
+                    # Extract platform and url
+                    # [+ ] Platform: URL
+                    parts = line[3:].split(':', 1)
+                    if len(parts) == 2:
+                        platform = parts[0].strip()
+                        url = parts[1].strip()
                         
-                        # Convert Sherlock results to OSINTResult objects
-                        # Sherlock JSON format: {platform: {url, exists, ...}}
-                        for platform, data in sherlock_data.items():
-                            # Only include results where username was found
-                            if isinstance(data, dict) and data.get('url_user'):
-                                result = OSINTResult(
-                                    source="Sherlock",
-                                    source_url=data.get('url_user'),
-                                    data_type="social_profile",
-                                    data={
-                                        "platform": platform,
-                                        "username": username,
-                                        "url": data.get('url_user'),
-                                        "exists": True,
-                                        "http_status": data.get('http_status'),
-                                        "response_time": data.get('response_time_s')
-                                    },
-                                    confidence=0.90  # Sherlock is very reliable
-                                )
-                                results.append(result)
-                                
-                                self.logger.info(f"Sherlock: Found {username} on {platform}")
-                    else:
-                        self.logger.warning("Sherlock output file not created")
+                        result = OSINTResult(
+                            source="Sherlock",
+                            source_url=url,
+                            data_type="social_profile",
+                            data={
+                                "platform": platform,
+                                "username": username,
+                                "url": url,
+                                "exists": True,
+                            },
+                            confidence=0.90
+                        )
+                        results.append(result)
+                        self.logger.info(f"Sherlock: Found {username} on {platform}")
                         
-            except subprocess.TimeoutExpired:
-                self.logger.warning("Sherlock check timed out after 2 minutes")
-            except FileNotFoundError:
-                # Sherlock not installed as module
-                self.logger.info("Sherlock not installed. Install with: pip install sherlock-project")
+        except subprocess.TimeoutExpired:
+            self.logger.warning("Sherlock check timed out after 3 minutes")
+        except FileNotFoundError:
+            # Sherlock not installed in path
+            self.logger.info("Sherlock binary not found. Is it installed?")
+        except Exception as e:
+            self.logger.error(f"Sherlock check failed: {str(e)}")
                 
         except Exception as e:
             self.logger.error(f"Sherlock check failed: {str(e)}")

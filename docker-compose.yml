@@ -74,6 +74,27 @@ services:
       retries: 3
       start_period: 30s
 
+  # ── Celery Background Worker ──────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osig_backend_worker
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-osig}:${POSTGRES_PASSWORD:-osig_dev_pass}@db:5432/${POSTGRES_DB:-osig_db}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - reports_storage:/app/storage/reports
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   reports_storage:

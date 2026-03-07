@@ -85,16 +85,21 @@ def _run_modules(scan_id: str, module_pairs: list, start_progress: int = 5):
                 sig = inspect.signature(module.run)
                 run_kwargs = {'deep': deep} if 'deep' in sig.parameters else {}
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                # Dynamic timeout based on scan depth
+                # Quick scans should be fast, Deep scans need time for Sherlock/h8mail
+                scan_timeout = 300 if deep else 45
+                
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                try:
                     future = executor.submit(module.run, scan.target_value, **run_kwargs)
                     try:
-                        results: List[OSINTResult] = future.result(timeout=25)
+                        results: List[OSINTResult] = future.result(timeout=scan_timeout)
                     except concurrent.futures.TimeoutError:
-                        logger.warning(f"Module {module.name} timed out, skipping")
+                        logger.warning(f"Module {module.name} timed out after {scan_timeout}s, skipping")
                         results = []
-                    finally:
-                        # Ensure executor doesn't wait for hung threads
-                        executor.shutdown(wait=False)
+                finally:
+                    # shutdown(wait=False) so we don't hang the parent thread if a module hangs
+                    executor.shutdown(wait=False)
 
                 for osint_result in results:
                     db_result = Result(
