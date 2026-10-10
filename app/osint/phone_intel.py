@@ -68,6 +68,10 @@ class PhoneIntelModule(BaseOSINTModule):
                     confidence=0.95 if phone_data.get("is_valid") else 0.5
                 )
                 results.append(result)
+
+                numverify = self._numverify(phone_data.get("e164_format") or target)
+                if numverify:
+                    results.append(numverify)
                 
             self.log_success(len(results))
             
@@ -77,6 +81,30 @@ class PhoneIntelModule(BaseOSINTModule):
         
         return results
     
+    def _numverify(self, number: str) -> Optional[OSINTResult]:
+        """Line validity, carrier and line type from numverify (when NUMVERIFY_API_KEY is set)."""
+        from app.core.config import settings
+        if not settings.NUMVERIFY_API_KEY:
+            return None
+        import httpx
+        try:
+            r = httpx.get("https://apilayer.net/api/validate", timeout=12,
+                          params={"access_key": settings.NUMVERIFY_API_KEY, "number": number.lstrip("+")})
+            d = r.json()
+        except Exception as e:
+            self.logger.info(f"numverify failed: {e}")
+            return None
+        if "error" in d:
+            return None
+        return OSINTResult(
+            source="numverify",
+            source_url="https://numverify.com",
+            data_type="phone_info",
+            data={"valid": d.get("valid"), "carrier": d.get("carrier") or None, "line_type": d.get("line_type"),
+                  "location": d.get("location") or None, "country": d.get("country_name")},
+            confidence=0.85,
+        )
+
     def _analyze_phone_number(self, phone: str) -> Optional[Dict[str, Any]]:
         """
         Analyze phone number using phonenumbers library.

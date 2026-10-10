@@ -19,6 +19,8 @@ from app.osint.domain_intel import DomainIntelModule
 from app.osint.phone_intel import PhoneIntelModule
 from app.osint.username_intel import UsernameIntelModule
 from app.osint.google_dork import GoogleDorkModule
+from app.osint.ip_intel import IPIntelModule
+from app.osint.org_intel import OrganizationIntelModule
 from app.osint.base import OSINTResult
 import logging
 
@@ -39,6 +41,10 @@ def _get_core_modules(target_type: TargetType, scan_type: ScanType):
         core = [PhoneIntelModule()]
     elif target_type == TargetType.USERNAME:
         core = [UsernameIntelModule()]
+    elif target_type == TargetType.IP:
+        core = [IPIntelModule()]
+    elif target_type == TargetType.ORGANIZATION:
+        core = [OrganizationIntelModule()]
     else:
         core = []
 
@@ -69,15 +75,20 @@ def _run_modules(scan_id: str, module_pairs: list, start_progress: int = 5):
         import concurrent.futures, inspect
 
         for i, (module, deep) in enumerate(module_pairs):
-            db_module = ScanModule(
-                scan_id=scan.id,
-                name=module.name,
-                display_name=module.display_name,
-                status=ModuleStatus.RUNNING,
-                progress=0,
-                started_at=datetime.utcnow(),
-            )
-            db.add(db_module)
+            # Reuse a row pre-registered as PENDING (async modules), else create one
+            db_module = db.query(ScanModule).filter(
+                ScanModule.scan_id == scan.id, ScanModule.name == module.name
+            ).first()
+            if db_module is None:
+                db_module = ScanModule(
+                    scan_id=scan.id,
+                    name=module.name,
+                    display_name=module.display_name,
+                )
+                db.add(db_module)
+            db_module.status = ModuleStatus.RUNNING
+            db_module.progress = 0
+            db_module.started_at = datetime.utcnow()
             db.commit()
             db.refresh(db_module)
 
@@ -151,6 +162,10 @@ def execute_scan_sync(scan_id: str):
             logger.warning(f"Scan {scan_id} was already cancelled/failed.")
             return
 
+        # Idempotent re-runs: a retried task (worker lost mid-scan) starts clean
+        db.query(Result).filter(Result.scan_id == scan.id).delete(synchronize_session=False)
+        db.query(ScanModule).filter(ScanModule.scan_id == scan.id).delete(synchronize_session=False)
+
         # Mark as running
         scan.status = ScanStatus.RUNNING
         scan.started_at = datetime.utcnow()
@@ -167,24 +182,29 @@ def execute_scan_sync(scan_id: str):
         # Re-open to complete the scan status
         db = SessionLocal()
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
+
+        # Register async modules as PENDING in the same commit that completes the
+        # scan, so clients polling the scan never see "completed, nothing running"
+        # while background modules are still about to start.
+        async_pairs = _get_async_modules(scan.target_type, scan.scan_type)
+        for module, _ in async_pairs:
+            db.add(ScanModule(
+                scan_id=scan.id,
+                name=module.name,
+                display_name=module.display_name,
+                status=ModuleStatus.PENDING,
+                progress=0,
+            ))
+
         scan.status = ScanStatus.COMPLETED
         scan.progress = 100
         scan.completed_at = datetime.utcnow()
         db.commit()
         logger.info(f"Scan {scan_id} core modules completed.")
 
-        # ── Async modules (fire-and-forget) ───────────────────────────────
-        async_pairs = _get_async_modules(scan.target_type, scan.scan_type)
+        # ── Background modules (search dorks) ─────────────────────────────
         if async_pairs:
-            import threading
-            t = threading.Thread(
-                target=_run_modules,
-                args=(str(scan_id), async_pairs),
-                daemon=True,
-                name=f"dork-{scan_id[:8]}",
-            )
-            t.start()
-            logger.info(f"Dork thread started for scan {scan_id}")
+            dispatch_background_modules(str(scan_id))
 
     except Exception as e:
         logger.error(f"Scan {scan_id} failed: {e}", exc_info=True)
@@ -203,3 +223,92 @@ def execute_scan_sync(scan_id: str):
         if db:
             db.close()
 
+
+
+# ── Dispatch ─────────────────────────────────────────────────────────────
+# SCAN_EXECUTOR=celery (default): scans run in the Celery worker, survive API
+# restarts, and a worker killed mid-scan hands the task back to the queue.
+# SCAN_EXECUTOR=thread: in-process threads, for local dev without Redis.
+import os
+import threading
+
+from app.core.celery_app import celery_app
+
+
+def _executor() -> str:
+    from app.core.config import settings
+    return settings.SCAN_EXECUTOR.lower()
+
+
+def run_background_modules(scan_id: str):
+    db = SessionLocal()
+    try:
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            return
+        pairs = _get_async_modules(scan.target_type, scan.scan_type)
+    finally:
+        db.close()
+    _run_modules(scan_id, pairs)
+
+
+def dispatch_scan(scan_id: str):
+    if _executor() == "thread":
+        threading.Thread(target=execute_scan_sync, args=(scan_id,), daemon=True, name=f"scan-{scan_id[:8]}").start()
+    else:
+        # task_id = scan id, so cancelling can revoke it
+        run_scan_task.apply_async(args=[scan_id], task_id=scan_id)
+
+
+def dispatch_background_modules(scan_id: str):
+    if _executor() == "thread":
+        threading.Thread(target=run_background_modules, args=(scan_id,), daemon=True, name=f"dork-{scan_id[:8]}").start()
+    else:
+        run_background_task.apply_async(args=[scan_id], task_id=f"{scan_id}:background")
+
+
+@celery_app.task(name="osig.run_scan", acks_late=True, reject_on_worker_lost=True)
+def run_scan_task(scan_id: str):
+    execute_scan_sync(scan_id)
+
+
+@celery_app.task(name="osig.run_background_modules", acks_late=True, reject_on_worker_lost=True)
+def run_background_task(scan_id: str):
+    run_background_modules(scan_id)
+
+
+@celery_app.task(name="osig.run_due_watches")
+def run_due_watches():
+    """Beat task: start a scan for every watch that is due."""
+    from datetime import timedelta
+    from fastapi import HTTPException
+    from app.models.investigation import Watch
+    from app.models.user import User
+    from app.schemas.scan import CreateScanRequest
+    from app.services.scan_service import ScanService
+
+    db = SessionLocal()
+    started = 0
+    try:
+        now = datetime.utcnow()
+        due = db.query(Watch).filter(Watch.active.is_(True), Watch.next_run_at <= now).limit(50).all()
+        for w in due:
+            user = db.query(User).filter(User.id == w.user_id, User.is_active.is_(True)).first()
+            if not user:
+                w.active = False
+                continue
+            try:
+                ScanService.create_scan(db, user, CreateScanRequest(
+                    target_type=w.target_type, target_value=w.target_value,
+                    scan_type=w.scan_type, disclaimer_accepted=True,
+                ), watch_id=w.id)
+                w.last_run_at = now
+                w.next_run_at = now + timedelta(hours=w.interval_hours)
+                started += 1
+            except HTTPException as e:  # e.g. daily quota used up: try again later
+                logger.info(f"Watch {w.id} postponed: {e.detail}")
+                w.next_run_at = now + timedelta(hours=1)
+        db.commit()
+    finally:
+        db.close()
+    return started

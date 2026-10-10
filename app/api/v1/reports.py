@@ -4,7 +4,7 @@ OSIG Backend - Reports API Endpoints
 Handles report creation, listing, and downloading.
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from math import ceil
@@ -15,11 +15,13 @@ from app.schemas.report import CreateReportRequest, ReportResponse, ReportListRe
 from app.models.report import ReportStatus
 from app.models.user import User
 from app.services.report_service import report_service
+from app.services import audit_service
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
 @router.post("", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 def create_report(
+    request: Request,
     report_data: CreateReportRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -29,6 +31,8 @@ def create_report(
     """
     try:
         report = report_service.create_report(db, current_user, report_data)
+        audit_service.record(db, "report_created", request=request, user_id=current_user.id,
+                             target=f"{report.id} scan={report.scan_id} {report.format.value}")
         return ReportResponse.model_validate(report)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

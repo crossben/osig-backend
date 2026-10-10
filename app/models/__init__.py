@@ -9,6 +9,7 @@ from app.models.scan import Scan, ScanModule
 from app.models.result import Result, Source
 from app.models.report import Report
 from app.models.audit_log import AuditLog
+from app.models.investigation import Investigation, InvestigationPin, Watch
 
 # Export all models
 __all__ = [
@@ -20,4 +21,7 @@ __all__ = [
     "Source",
     "Report",
     "AuditLog",
+    "Investigation",
+    "InvestigationPin",
+    "Watch",
 ]

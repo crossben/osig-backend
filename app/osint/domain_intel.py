@@ -10,13 +10,18 @@ This module gathers intelligence on domain names using free OSINT tools:
 All findings are returned in a standardized format for storage and display.
 """
 
-from typing import List, Dict, Any, Optional
+import concurrent.futures
+import os
+import re
+from typing import List, Dict, Any, Optional, Set
+import httpx
 import dns.resolver
 import dns.exception
 import whois
 from datetime import datetime
 import socket
 from app.osint.base import BaseOSINTModule, OSINTResult
+from app.osint.safe_http import UnsafeTargetError, safe_get, safe_tls_connect
 
 
 class DomainIntelModule(BaseOSINTModule):
@@ -34,10 +39,16 @@ class DomainIntelModule(BaseOSINTModule):
     # Common subdomains to check
     # These are the most frequently used subdomain names
     COMMON_SUBDOMAINS = [
-        "www", "mail", "ftp", "webmail", "smtp", "pop", "ns1", "ns2",
-        "webdisk", "admin", "api", "dev", "staging", "test", "blog",
-        "shop", "mobile", "m", "vpn", "cdn", "ssh", "git", "docs"
+        "www", "mail", "ftp", "webmail", "smtp", "pop", "imap", "ns1", "ns2", "mx", "autodiscover",
+        "webdisk", "admin", "portal", "api", "dev", "staging", "stage", "test", "qa", "uat", "beta",
+        "blog", "shop", "store", "mobile", "m", "vpn", "remote", "cdn", "static", "assets", "img",
+        "ssh", "git", "gitlab", "jenkins", "ci", "docs", "wiki", "help", "support", "status",
+        "app", "dashboard", "login", "auth", "sso", "id", "accounts", "cloud", "files", "media",
+        "news", "forum", "community", "events", "careers", "jobs", "intranet", "crm", "erp",
     ]
+    WORKERS = 24
+    # Reverse-IP on CDN/shared-cloud IPs returns thousands of unrelated sites
+    SHARED_HOSTING_ASNS = {"13335", "54113", "16509", "14618", "15169", "8075", "20940", "16625", "396982"}
     
     def __init__(self):
         """Initialize the Domain Intel module."""
@@ -82,40 +93,68 @@ class DomainIntelModule(BaseOSINTModule):
             harvester_results = self._check_harvester(target)
             results.extend(harvester_results)
 
-            # Extract IPs from DNS A records to run IP intelligence
-            ips_to_check = set()
-            for r in dns_results:
-                if r.data.get("record_type") == "A":
-                    for ip in r.data.get("records", []):
-                        ips_to_check.add(ip)
-            
-            for ip in ips_to_check:
-                ip_res = self._lookup_ip_info(ip, target)
-                if ip_res:
-                    results.append(ip_res)
-                    
-                # Scan ports for each resolved IP
-                port_scan_res = self._scan_ports(ip, target)
-                if port_scan_res:
-                    results.append(port_scan_res)
+            https_res = self._probe_https(target)
+            if https_res:
+                results.append(https_res)
+
+            # IP intelligence for every address the domain resolves to (in parallel)
+            ips_to_check = sorted({
+                ip for r in dns_results
+                if r.data.get("record_type") in ("A", "AAAA")
+                for ip in r.data.get("records", [])
+            })
+            with concurrent.futures.ThreadPoolExecutor(8) as pool:
+                ip_results = [r for r in pool.map(lambda ip: self._lookup_ip_info(ip, target), ips_to_check) if r]
+            results.extend(ip_results)
+
+            for extra in (self._hygiene(target), self._mail_security(target)):
+                if extra:
+                    results.append(extra)
+            from app.osint.exposure import hudson_rock
+            try:
+                results.extend(hudson_rock("domain", target))
+            except Exception as e:
+                self.logger.info(f"Hudson Rock failed: {e}")
+
+            # Passive exposure for the domain's and its subdomains' servers (no key, no probing)
+            sub_ips = {ip for r in subdomain_results for ip in r.data.get("ip_addresses", [])}
+            results.extend(self._internetdb(sorted(set(ips_to_check) | sub_ips)))
 
             if deep:
+                results.extend(self._urlscan(target))
+                vt = self._virustotal(target)
+                if vt:
+                    results.append(vt)
+
                 # Deep: scrape homepage for basic meta info and emails
                 scrape_res = self._scrape_homepage(target)
                 if scrape_res:
                     results.append(scrape_res)
 
-                # Deep: certificate transparency logs via crt.sh
-                crt_results = self._check_crtsh(target)
-                results.extend(crt_results)
+                # Deep: every hostname ever issued a certificate (crt.sh / Cert Spotter), resolved
+                known = {r.data.get("full_domain") for r in subdomain_results}
+                results.extend(self._check_cert_transparency(target, known))
 
-                # Deep: reverse IP lookup
-                reverse_results = self._reverse_ip_lookup(target)
-                results.extend(reverse_results)
-                
+                # Deep: other sites hosted on the same (non-CDN) servers
+                results.extend(self._reverse_ip_lookup(target, ip_results))
+
                 # Deep: sublist3r for expanded subdomain enumeration
                 subl_results = self._check_sublist3r(target)
                 results.extend(subl_results)
+
+                results.extend(self._lookalikes(target))
+
+                wayback = self._check_wayback(target)
+                if wayback:
+                    results.append(wayback)
+
+                # Active probing of the target's hosts: opt-in only
+                from app.core.config import settings
+                if settings.ENABLE_PORT_SCAN:
+                    for ip in [i for i in ips_to_check if ":" not in i][:4]:
+                        port_scan_res = self._scan_ports(ip, target)
+                        if port_scan_res:
+                            results.append(port_scan_res)
 
             self.log_success(len(results))
             
@@ -258,38 +297,27 @@ class DomainIntelModule(BaseOSINTModule):
             return results
 
         resolver = dns.resolver.Resolver()
-        resolver.timeout = 2    # 2s per query
-        resolver.lifetime = 2   # 2s total lifetime per query
+        resolver.timeout = 2
+        resolver.lifetime = 3
 
-        for subdomain_name in self.COMMON_SUBDOMAINS:
-            try:
-                full_domain = f"{subdomain_name}.{domain}"
-                answers = resolver.resolve(full_domain, 'A')
-                ip_addresses = [str(r) for r in answers]
+        # Wildcard DNS answers every name; detect it so we don't report noise
+        wildcard_ips = set(self._resolve(resolver, f"osig-{os.urandom(4).hex()}.{domain}"))
 
-                result = OSINTResult(
-                    source="Subdomain Enumeration",
-                    source_url=f"http://{full_domain}",
-                    data_type="subdomain",
-                    data={
-                        "subdomain": subdomain_name,
-                        "full_domain": full_domain,
-                        "ip_addresses": ip_addresses,
-                        "exists": True,
-                    },
-                    confidence=0.85,
-                )
-                results.append(result)
-                self.logger.info(f"Found subdomain: {full_domain}")
+        def probe(name):
+            full_domain = f"{name}.{domain}"
+            ips = self._resolve(resolver, full_domain)
+            if not ips or (wildcard_ips and set(ips) <= wildcard_ips):
+                return None
+            return OSINTResult(
+                source="Subdomain Enumeration",
+                source_url=f"https://{full_domain}",
+                data_type="subdomain",
+                data={"subdomain": name, "full_domain": full_domain, "ip_addresses": ips, "exists": True},
+                confidence=0.85,
+            )
 
-            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
-                    dns.resolver.NoNameservers, dns.exception.Timeout):
-                # Subdomain doesn't exist or timed out — normal, skip
-                continue
-            except Exception as e:
-                self.logger.debug(f"Error checking subdomain {subdomain_name}: {e}")
-                continue
-
+        with concurrent.futures.ThreadPoolExecutor(self.WORKERS) as pool:
+            results = [r for r in pool.map(probe, self.COMMON_SUBDOMAINS) if r]
         return results
     
     def _check_harvester(self, domain: str) -> List[OSINTResult]:
@@ -349,9 +377,9 @@ class DomainIntelModule(BaseOSINTModule):
                 for rdata in dmarc_answers:
                     dmarc_content = str(rdata)
                     
-                    # Extract email addresses from DMARC policy
-                    # Format: v=DMARC1; p=none; rua=mailto:email@domain.com
-                    if 'mailto:' in dmarc_content:
+                    # Record every DMARC policy (risk scoring needs p=none vs reject),
+                    # report addresses are extracted from it downstream
+                    if 'v=dmarc1' in dmarc_content.lower():
                         result = OSINTResult(
                             source="DMARC Analysis",
                             source_url=None,
@@ -359,7 +387,8 @@ class DomainIntelModule(BaseOSINTModule):
                             data={
                                 "domain": domain,
                                 "record": dmarc_content,
-                                "type": "DMARC Reporting Address"
+                                "type": "DMARC Policy",
+                                "policy": (re.search(r"\bp=(\w+)", dmarc_content, re.I) or [None, None])[1]
                             },
                             confidence=0.95
                         )
@@ -406,69 +435,346 @@ class DomainIntelModule(BaseOSINTModule):
         
         return results
 
-    def _check_crtsh(self, domain: str) -> List[OSINTResult]:
-        """
-        Query crt.sh (certificate transparency logs) for subdomains.
-        Free, no API key required — returns all SSL certificates ever issued for the domain.
-        """
-        results = []
+    @staticmethod
+    def _resolve(resolver, name: str) -> List[str]:
+        import dns.resolver
+        ips: List[str] = []
+        for rtype in ("A", "AAAA"):
+            try:
+                ips += [str(r) for r in resolver.resolve(name, rtype)]
+            except Exception:
+                continue
+        return ips
+
+    def _ct_names(self, domain: str) -> Set[str]:
+        """Hostnames from certificate transparency: crt.sh, falling back to Cert Spotter."""
+        names: Set[str] = set()
         try:
-            import httpx
-            import json
-            url = f"https://crt.sh/?q=%.{domain}&output=json"
-            with httpx.Client(timeout=15.0) as client:
-                resp = client.get(url, headers={"User-Agent": "OSIG-Scanner/1.0"})
-                if resp.status_code == 200:
-                    certs = resp.json()
-                    seen_names = set()
-                    for cert in certs[:100]:  # cap at 100 entries
-                        name = cert.get("name_value", "").strip()
-                        for n in name.split("\n"):
-                            n = n.strip().lstrip("*.").lower()
-                            if n and n not in seen_names and domain in n and n != domain:
-                                seen_names.add(n)
-                                results.append(OSINTResult(
-                                    source="crt.sh (Certificate Transparency)",
-                                    source_url=f"https://crt.sh/?q={n}",
-                                    data_type="subdomain",
-                                    data={
-                                        "subdomain": n,
-                                        "full_domain": n,
-                                        "issuer": cert.get("issuer_name", ""),
-                                        "not_before": cert.get("not_before"),
-                                        "not_after": cert.get("not_after"),
-                                        "exists": True,
-                                    },
-                                    confidence=0.9,
-                                ))
+            r = httpx.get(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=30,
+                          headers={"User-Agent": "OSIG/1.0"})
+            if r.status_code == 200:
+                for cert in r.json():
+                    names.update(cert.get("name_value", "").split("\n"))
         except Exception as e:
-            self.logger.warning(f"crt.sh lookup failed: {e}")
+            self.logger.info(f"crt.sh unavailable ({e}); trying Cert Spotter")
+        if not names:
+            try:
+                r = httpx.get("https://api.certspotter.com/v1/issuances", timeout=20, params={
+                    "domain": domain, "include_subdomains": "true", "expand": "dns_names"})
+                if r.status_code == 200:
+                    for cert in r.json():
+                        names.update(cert.get("dns_names", []))
+            except Exception as e:
+                self.logger.info(f"Cert Spotter unavailable: {e}")
+        cleaned = set()
+        for n in names:
+            n = n.strip().lower().lstrip("*.").rstrip(".")
+            if n and n != domain and n.endswith("." + domain):
+                cleaned.add(n)
+        return cleaned
+
+    def _check_cert_transparency(self, domain: str, already_found: Set[str]) -> List[OSINTResult]:
+        import dns.resolver
+        names = sorted(self._ct_names(domain) - {n for n in already_found if n})[:200]
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 2
+        resolver.lifetime = 3
+
+        def resolve(name):
+            return name, self._resolve(resolver, name)
+
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(self.WORKERS) as pool:
+            for name, ips in pool.map(resolve, names):
+                results.append(OSINTResult(
+                    source="Certificate Transparency",
+                    source_url=f"https://crt.sh/?q={name}",
+                    data_type="subdomain",
+                    data={
+                        "subdomain": name[: -(len(domain) + 1)],
+                        "full_domain": name,
+                        "ip_addresses": ips,
+                        "exists": True,
+                        "live": bool(ips),
+                    },
+                    # Still resolving = current; otherwise only historically certified
+                    confidence=0.9 if ips else 0.6,
+                ))
         return results
 
-    def _reverse_ip_lookup(self, domain: str) -> List[OSINTResult]:
-        """
-        Find the IP address for the domain and look up its hostname.
-        Useful for identifying shared hosting / cloud providers.
-        """
+    def _reverse_ip_lookup(self, domain: str, ip_results: List[OSINTResult]) -> List[OSINTResult]:
+        """Other domains on the same server (HackerTarget, free tier ~50/day)."""
         results = []
-        try:
-            ip = socket.gethostbyname(domain)
-            hostname = socket.gethostbyaddr(ip)[0] if ip else None
+        for r in ip_results:
+            ip = r.data.get("ip")
+            if not ip or ":" in ip or str(r.data.get("asn")) in self.SHARED_HOSTING_ASNS:
+                continue
+            try:
+                resp = httpx.get("https://api.hackertarget.com/reverseiplookup/", params={"q": ip}, timeout=15)
+            except Exception as e:
+                self.logger.info(f"Reverse IP lookup failed for {ip}: {e}")
+                continue
+            text = resp.text.strip()
+            if resp.status_code != 200 or not text or "error" in text.lower() or "API count" in text:
+                continue
+            hosts = [h.strip().lower() for h in text.splitlines() if h.strip() and h.strip().lower() != domain]
+            if not hosts or len(hosts) > 100:  # >100 = shared hosting; not meaningful
+                continue
             results.append(OSINTResult(
                 source="Reverse IP Lookup",
-                source_url=None,
+                source_url=f"https://hackertarget.com/reverse-ip-lookup/",
                 data_type="ip_info",
-                data={
-                    "domain": domain,
-                    "ip_address": ip,
-                    "reverse_hostname": hostname,
-                },
-                confidence=0.95,
+                data={"domain": domain, "ip_address": ip, "domains": hosts[:50], "count": len(hosts)},
+                confidence=0.8,
             ))
-        except Exception as e:
-            self.logger.warning(f"Reverse IP lookup failed: {e}")
         return results
-    
+
+    def _internetdb(self, ips: List[str]) -> List[OSINTResult]:
+        """Shodan InternetDB: ports, software and known CVEs per IP, from Shodan's passive scans."""
+        ipv4 = [ip for ip in ips if ":" not in ip][:25]
+
+        def one(ip):
+            try:
+                r = httpx.get(f"https://internetdb.shodan.io/{ip}", timeout=8)
+            except Exception:
+                return None
+            if r.status_code != 200:
+                return None
+            d = r.json()
+            if not d.get("ports"):
+                return None
+            return OSINTResult(
+                source="Shodan InternetDB",
+                source_url=f"https://www.shodan.io/host/{ip}",
+                data_type="host_exposure",
+                data={"ip": ip, "ports": d.get("ports", []), "hostnames": d.get("hostnames", []),
+                      "software": [c.replace("cpe:/", "").replace(":", " ", 2) for c in d.get("cpes", [])],
+                      "vulns": d.get("vulns", []), "tags": d.get("tags", [])},
+                confidence=0.85,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(8) as pool:
+            return [r for r in pool.map(one, ipv4) if r]
+
+    def _urlscan(self, domain: str) -> List[OSINTResult]:
+        """Recent public URLScan.io scans of the site (what it loaded, where it was hosted)."""
+        from app.core.config import settings
+        headers = {"API-Key": settings.URLSCAN_API_KEY} if settings.URLSCAN_API_KEY else {}
+        try:
+            r = httpx.get("https://urlscan.io/api/v1/search/", timeout=15, headers=headers,
+                          # Wildcards (subdomains too) need an API key on URLScan
+                          params={"q": f"page.domain:{domain} OR page.domain:*.{domain}" if headers
+                                  else f"page.domain:{domain}", "size": 10})
+        except Exception as e:
+            self.logger.info(f"URLScan unavailable: {e}")
+            return []
+        if r.status_code != 200:
+            return []
+        out = []
+        for hit in r.json().get("results", []):
+            page = hit.get("page") or {}
+            out.append(OSINTResult(
+                source="URLScan",
+                source_url=hit.get("result", "").replace("/api/v1/result/", "/result/") or None,
+                data_type="web_scan",
+                data={"url": page.get("url"), "domain": page.get("domain"), "ip": page.get("ip"),
+                      "server": page.get("server"), "country": page.get("country"),
+                      "scanned_at": (hit.get("task") or {}).get("time"), "screenshot": hit.get("screenshot")},
+                confidence=0.85,
+            ))
+        return out
+
+    def _virustotal(self, domain: str) -> Optional[OSINTResult]:
+        """VirusTotal reputation (only when VIRUSTOTAL_API_KEY is set)."""
+        from app.core.config import settings
+        if not settings.VIRUSTOTAL_API_KEY:
+            return None
+        try:
+            r = httpx.get(f"https://www.virustotal.com/api/v3/domains/{domain}", timeout=15,
+                          headers={"x-apikey": settings.VIRUSTOTAL_API_KEY})
+        except Exception as e:
+            self.logger.info(f"VirusTotal unavailable: {e}")
+            return None
+        if r.status_code != 200:
+            return None
+        attrs = (r.json().get("data") or {}).get("attributes") or {}
+        stats = attrs.get("last_analysis_stats") or {}
+        return OSINTResult(
+            source="VirusTotal",
+            source_url=f"https://www.virustotal.com/gui/domain/{domain}",
+            data_type="reputation",
+            data={"domain": domain, "malicious": stats.get("malicious", 0), "suspicious": stats.get("suspicious", 0),
+                  "harmless": stats.get("harmless", 0), "reputation": attrs.get("reputation"),
+                  "categories": sorted(set((attrs.get("categories") or {}).values()))},
+            confidence=0.9,
+        )
+
+    def _hygiene(self, domain: str) -> Optional[OSINTResult]:
+        """security.txt, robots.txt, sitemap and favicon fingerprint (all via the SSRF guard)."""
+        ua = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) OSIG/1.0"}
+        data: Dict[str, Any] = {"domain": domain}
+
+        def fetch(path):
+            try:
+                r = safe_get(f"https://{domain}{path}", headers=ua, timeout=8)
+                return r if r.status_code == 200 else None
+            except Exception:
+                return None
+
+        sec = fetch("/.well-known/security.txt") or fetch("/security.txt")
+        if sec and "contact:" in sec.text.lower():
+            fields: Dict[str, List[str]] = {}
+            for line in sec.text.splitlines():
+                if ":" in line and not line.startswith("#"):
+                    k, v = line.split(":", 1)
+                    fields.setdefault(k.strip().lower(), []).append(v.strip())
+            data["security_txt"] = {k: v for k, v in fields.items()
+                                    if k in ("contact", "expires", "policy", "acknowledgments", "hiring", "preferred-languages")}
+        robots = fetch("/robots.txt")
+        if robots and "user-agent" in robots.text.lower():
+            disallowed = sorted({l.split(":", 1)[1].strip() for l in robots.text.splitlines()
+                                 if l.lower().startswith("disallow:") and l.split(":", 1)[1].strip() not in ("", "/")})
+            data["robots_disallowed"] = disallowed[:40]
+            data["sitemaps"] = [l.split(":", 1)[1].strip() for l in robots.text.splitlines()
+                                if l.lower().startswith("sitemap:")][:10]
+        fav = fetch("/favicon.ico")
+        if fav and fav.content and len(fav.content) < 500_000 and not fav.headers.get("content-type", "").startswith("text/"):
+            import base64
+            import mmh3
+            h = mmh3.hash(base64.encodebytes(fav.content))
+            data["favicon_hash"] = h
+            # Same favicon on other servers often means the same app or owner
+            data["favicon_shodan_query"] = f"https://www.shodan.io/search?query=http.favicon.hash%3A{h}"
+        if len(data) == 1:
+            return None
+        return OSINTResult(source="Site Hygiene", source_url=f"https://{domain}", data_type="web_hygiene",
+                           data=data, confidence=0.9)
+
+    def _mail_security(self, domain: str) -> Optional[OSINTResult]:
+        """MTA-STS, BIMI and common DKIM selectors."""
+        import dns.resolver
+
+        def txt(name):
+            try:
+                return [b"".join(r.strings).decode(errors="replace") for r in dns.resolver.resolve(name, "TXT", lifetime=4)]
+            except Exception:
+                return []
+
+        data: Dict[str, Any] = {"domain": domain}
+        sts = [t for t in txt(f"_mta-sts.{domain}") if t.lower().startswith("v=stsv1")]
+        data["mta_sts"] = bool(sts)
+        if sts:
+            try:
+                pol = safe_get(f"https://mta-sts.{domain}/.well-known/mta-sts.txt", timeout=8)
+                m = re.search(r"mode:\s*(\w+)", pol.text) if pol.status_code == 200 else None
+                data["mta_sts_mode"] = m.group(1) if m else None
+            except Exception:
+                data["mta_sts_mode"] = None
+        bimi = [t for t in txt(f"default._bimi.{domain}") if t.lower().startswith("v=bimi1")]
+        data["bimi"] = bool(bimi)
+        selectors = ["google", "selector1", "selector2", "default", "k1", "k2", "s1", "s2", "mail", "dkim",
+                     "smtp", "mandrill", "mxvault", "pm", "zoho", "fm1", "everlytickey1", "mailjet", "sendgrid"]
+        with concurrent.futures.ThreadPoolExecutor(10) as pool:
+            hits = [sel for sel, recs in zip(selectors, pool.map(lambda s: txt(f"{s}._domainkey.{domain}"), selectors))
+                    if any("p=" in r for r in recs)]
+        # A domain answering any selector (wildcard) would make every guess a "hit"
+        if hits and any("p=" in r for r in txt(f"osig{os.urandom(3).hex()}._domainkey.{domain}")):
+            hits = []
+            data["dkim_wildcard"] = True
+        data["dkim_selectors"] = hits
+        return OSINTResult(source="Mail Security", data_type="mail_security", data=data, confidence=0.9)
+
+    def _lookalikes(self, domain: str) -> List[OSINTResult]:
+        """Registered lookalike domains (dnstwist): typo-squats, homoglyphs, TLD swaps."""
+        try:
+            import dnstwist
+            found = dnstwist.run(domain=domain, registered=True, format="null", threads=24,
+                                 fuzzers="addition,bitsquatting,homoglyph,hyphenation,insertion,omission,"
+                                         "repetition,replacement,subdomain,transposition,vowel-swap,dictionary,tld-swap")
+        except Exception as e:
+            self.logger.warning(f"dnstwist failed: {e}")
+            return []
+        out = []
+        for d in found:
+            if d.get("fuzzer") == "*original" or not d.get("domain"):
+                continue
+            out.append(OSINTResult(
+                source="dnstwist",
+                source_url=f"https://{d['domain']}",
+                data_type="lookalike_domain",
+                data={"domain": d["domain"], "technique": d.get("fuzzer"),
+                      "ip_addresses": (d.get("dns_a") or []) + (d.get("dns_aaaa") or []),
+                      "mail_servers": d.get("dns_mx") or [], "nameservers": d.get("dns_ns") or [],
+                      "can_receive_mail": bool(d.get("dns_mx"))},
+                confidence=0.85,
+            ))
+        # Lookalikes with mail servers first: those can send and receive phishing email
+        out.sort(key=lambda r: (not r.data["can_receive_mail"], r.data["domain"]))
+        return out[:80]
+
+    def _probe_https(self, domain: str) -> Optional[OSINTResult]:
+        """What answers on https://domain: status, redirects, server, title, TLS certificate."""
+        import ssl
+        data: Dict[str, Any] = {"domain": domain}
+        try:
+            r = safe_get(f"https://{domain}", timeout=10,
+                         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) OSIG/1.0"})
+            data.update({
+                "status": r.status_code,
+                "final_url": str(r.url),
+                "server": r.headers.get("server"),
+                "powered_by": r.headers.get("x-powered-by"),
+                "hsts": "strict-transport-security" in r.headers,
+                "csp": "content-security-policy" in r.headers,
+            })
+            m = re.search(r"<title[^>]*>(.*?)</title>", r.text[:200000], re.I | re.S)
+            if m:
+                data["title"] = re.sub(r"\s+", " ", m.group(1)).strip()[:200]
+            from app.osint.web_fingerprint import detect
+            data["technologies"] = detect(dict(r.headers), r.text)
+        except Exception as e:
+            data["https_error"] = str(e)[:200]
+        try:
+            ctx = ssl.create_default_context()
+            with safe_tls_connect(domain, 443, timeout=6) as sock:
+                with ctx.wrap_socket(sock, server_hostname=domain) as tls:
+                    cert = tls.getpeercert()
+            issuer = dict(x[0] for x in cert.get("issuer", ()))
+            data["tls"] = {
+                "issuer": issuer.get("organizationName") or issuer.get("commonName"),
+                "expires": cert.get("notAfter"),
+                "names": [v for k, v in cert.get("subjectAltName", ()) if k == "DNS"][:20],
+            }
+        except Exception as e:
+            data.setdefault("tls_error", str(e)[:200])
+        if len(data) <= 2:
+            return None
+        return OSINTResult(source="HTTPS Probe", source_url=f"https://{domain}", data_type="web_server",
+                           data=data, confidence=0.95)
+
+    def _check_wayback(self, domain: str) -> Optional[OSINTResult]:
+        """First and latest Wayback Machine captures: how long the site has existed publicly."""
+        try:
+            base = "https://web.archive.org/cdx/search/cdx"
+            # CDX is slow (~15s) but the only way to get the first capture
+            first = httpx.get(base, params={"url": domain, "limit": 1, "fl": "timestamp", "output": "json"}, timeout=40).json()
+            latest = httpx.get("https://archive.org/wayback/available", params={"url": domain}, timeout=15).json()
+            last_ts = ((latest.get("archived_snapshots") or {}).get("closest") or {}).get("timestamp")
+        except Exception as e:
+            self.logger.info(f"Wayback lookup failed: {e}")
+            return None
+        if len(first) < 2:
+            return None
+        fmt = lambda ts: f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}"
+        return OSINTResult(
+            source="Wayback Machine",
+            source_url=f"https://web.archive.org/web/*/{domain}",
+            data_type="web_history",
+            data={"domain": domain, "first_capture": fmt(first[1][0]),
+                  "latest_capture": fmt(last_ts) if last_ts else None},
+            confidence=0.95,
+        )
+
     # Helper methods for data cleaning
     
     def _clean_whois_field(self, field: Any) -> Any:
@@ -555,7 +861,7 @@ class DomainIntelModule(BaseOSINTModule):
             import concurrent.futures
             
             def run_sublist3r():
-                return sublist3r.main(domain, 40, savefile=None, ports=None, silent=True, verbose=False, enable_bruteforce=False, engines=None)
+                return sublist3r.main(domain, 40, savefile=None, ports=None, silent=True, verbose=False, enable_bruteforce=False, engines='baidu,yahoo,google,bing,ask,netcraft,virustotal,ssl,passivedns')
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(run_sublist3r)
@@ -643,10 +949,10 @@ class DomainIntelModule(BaseOSINTModule):
             
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                with httpx.Client(timeout=10.0, follow_redirects=True, verify=False) as client:
+                if True:  # target-controlled URLs: SSRF-guarded fetch
                     for url in urls_to_try:
                         try:
-                            resp = client.get(url, headers={"User-Agent": random_ua})
+                            resp = safe_get(url, headers={"User-Agent": random_ua}, timeout=10.0, verify=False)
                             if resp.status_code == 200:
                                 html_content = resp.text
                                 final_url = str(resp.url)

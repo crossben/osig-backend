@@ -57,7 +57,9 @@ class ScanService:
         return has_quota, used_today, daily_limit
     
     @staticmethod
-    def create_scan(db: Session, user: User, scan_data: CreateScanRequest) -> Scan:
+    def create_scan(db: Session, user: User, scan_data: CreateScanRequest, *,
+                    investigation_id=None, parent_scan_id=None, pivot_entity: Optional[str] = None,
+                    watch_id=None) -> Scan:
         """
         Create a new scan.
         
@@ -89,21 +91,19 @@ class ScanService:
             scan_type=scan_data.scan_type,
             status=ScanStatus.PENDING,
             progress=0,
+            investigation_id=investigation_id,
+            parent_scan_id=parent_scan_id,
+            pivot_entity=pivot_entity,
+            watch_id=watch_id,
         )
         
         db.add(db_scan)
         db.commit()
         db.refresh(db_scan)
         
-        # Enqueue background job for scan execution
-        import threading
-        from app.workers.scan_tasks import execute_scan_sync
-        thread = threading.Thread(
-            target=execute_scan_sync,
-            args=[str(db_scan.id)],
-            daemon=True
-        )
-        thread.start()
+        # Hand off to the worker (or a thread when SCAN_EXECUTOR=thread)
+        from app.workers.scan_tasks import dispatch_scan
+        dispatch_scan(str(db_scan.id))
         
         return db_scan
     
@@ -168,9 +168,13 @@ class ScanService:
         db.commit()
         db.refresh(scan)
         
-        # Cancel background job
-        from app.core.celery_app import celery_app
-        celery_app.control.revoke(str(scan.id), terminate=True)
+        # Stop the worker task if one is running (no-op in thread mode)
+        try:
+            from app.core.celery_app import celery_app
+            celery_app.control.revoke(str(scan.id), terminate=True)
+            celery_app.control.revoke(f"{scan.id}:background", terminate=True)
+        except Exception:
+            pass
         
         return scan
 

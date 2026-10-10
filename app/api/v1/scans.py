@@ -4,10 +4,12 @@ OSIG Backend - Scan API Endpoints
 Handles scan creation, listing, and management.
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from math import ceil
 
+from app.services.graph_service import build_entity_graph
+from app.services.risk_service import assess
 from app.core.deps import get_db, get_current_user
 from app.schemas.scan import (
     CreateScanRequest,
@@ -18,12 +20,17 @@ from app.schemas.scan import (
 from app.models.scan import ScanStatus, TargetType, ScanType
 from app.models.user import User
 from app.services.scan_service import scan_service
+from app.services import audit_service
+from app.core.rate_limit import limiter
+from app.core.config import settings
 
 router = APIRouter(prefix="/scans", tags=["Scans"])
 
 
 @router.post("", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.RATE_LIMIT_SCANS)
 def create_scan(
+    request: Request,
     scan_data: CreateScanRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -42,6 +49,8 @@ def create_scan(
     - Enterprise: Unlimited
     """
     scan = scan_service.create_scan(db, current_user, scan_data)
+    audit_service.record(db, "scan_created", request=request, user_id=current_user.id,
+                         target=f"{scan.id} {scan.target_type.value}:{scan.target_value}")
     return ScanResponse.model_validate(scan)
 
 
@@ -187,15 +196,11 @@ def get_scan_details(
     unique_sources = list({r.source for r in db_results})
 
     status_label = scan.status.value
-    top_findings = []
-    if status_label in ("pending", "running"):
-        top_findings = [f"Scan is currently {status_label}..."]
-    elif total_results > 0:
-        top_findings = [f"Found {total_results} result(s) across {len(unique_sources)} source(s)"]
-        for r in db_results[:3]:
-            top_findings.append(f"{r.source}: {r.data_type}")
+    risk = assess(scan, db_results)
+    if status_label in ("pending", "running") and not risk["findings"]:
+        top_findings = []
     else:
-        top_findings = ["No results found for this target."]
+        top_findings = risk["findings"]
 
     return {
         "scan": scan_data,
@@ -205,11 +210,12 @@ def get_scan_details(
             {"id": s, "name": s, "url": "", "category": "osint", "last_checked": None, "reliability": 0.8, "data_types": []}
             for s in unique_sources
         ],
-        "risk_flags": [],
+        "risk_flags": risk["flags"],
         "summary": {
             "total_results": total_results,
             "total_sources": len(unique_sources),
-            "risk_score": 0,
+            "risk_score": risk["score"],
+            "risk_level": risk["level"],
             "data_categories": list({r.data_type for r in db_results}),
             "top_findings": top_findings,
         }
@@ -222,8 +228,9 @@ def get_scan_graph(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Build a semantic relationship graph from scan results.
-    Nodes are grouped by source/platform. Edges describe the relationship type.
+    Entity graph of everything the scan found: one node per distinct entity
+    (IP, host, email, account, ...), linked to the sources that reported it
+    and to related entities. See app/services/graph_service.py.
     """
     from app.models.result import Result
 
@@ -232,164 +239,12 @@ def get_scan_graph(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
 
     db_results = db.query(Result).filter(Result.scan_id == scan.id).all()
-
-    nodes = []
-    edges = []
-
-    # Root node: the scan target
-    root_id = f"target-{scan_id}"
-    nodes.append({
-        "id": root_id,
-        "type": str(scan.target_type.value),
-        "label": scan.target_value,
-        "data": {
-            "target_type": scan.target_type.value,
-            "scan_type": scan.scan_type.value,
-            "status": scan.status.value,
-        },
-        "found": True,
-        "risk_level": None,
-        "is_root": True,
-    })
-
-    # Group results by source platform to avoid duplicate nodes
-    # source_key → merged node data
-    source_groups: dict = {}
-    for result in db_results:
-        data = result.data or {}
-        source = result.source
-
-        # Determine if this result found something meaningful
-        found = (
-            data.get("exists") is True or
-            data.get("has_profile") is True or
-            data.get("domain_valid") is True or
-            result.data_type == "dork_result" or
-            result.data_type == "domain_registration" or
-            result.data_type == "dns_record" or
-            result.data_type == "subdomain" or
-            result.data_type == "ip_info" or
-            result.data_type == "email_infrastructure"
-        )
-
-        # Determine relationship label
-        type_to_rel = {
-            "social_profile": "registered on" if found else "not registered",
-            "profile": "profile linked" if found else "no profile",
-            "email_validation": "email validated",
-            "dns_record": "DNS record",
-            "domain_registration": "domain owner",
-            "subdomain": "subdomain found",
-            "ip_info": "resolves to IP",
-            "email_infrastructure": "email infrastructure",
-            "dork_result": "found via dork",
-        }
-        relationship = type_to_rel.get(result.data_type, result.data_type)
-
-        # Determine node type
-        type_map = {
-            "social_profile": "social",
-            "profile": "profile",
-            "email_validation": "email",
-            "dns_record": "domain",
-            "domain_registration": "domain",
-            "subdomain": "domain",
-            "ip_info": "domain",
-            "email_infrastructure": "domain",
-            "dork_result": "profile",
-        }
-        node_type = type_map.get(result.data_type, "profile")
-
-        # Risk detection heuristics
-        risky = (
-            data.get("is_disposable") is True or
-            data.get("risk") == "high" or
-            (result.data_type == "dork_result" and any(
-                kw in str(data.get("snippet", "")).lower()
-                for kw in ["password", "leaked", "breach", "dump", "credentials", "hack"]
-            ))
-        )
-
-        if source not in source_groups:
-            # Generate a node label
-            label = (
-                data.get("platform") or
-                data.get("domain") or
-                data.get("record_type") or
-                source
-            )
-            source_groups[source] = {
-                "id": f"node-{source.replace(' ', '_').lower()}",
-                "type": node_type,
-                "label": str(label),
-                "source": source,
-                "source_url": result.source_url,
-                "found": found,
-                "risk_level": "high" if risky else None,
-                "results": [],
-                "relationship": relationship,
-            }
-        else:
-            # Upgrade found/risk status if any result in this group is positive
-            if found:
-                source_groups[source]["found"] = True
-            if risky:
-                source_groups[source]["risk_level"] = "high"
-
-        source_groups[source]["results"].append({
-            "data_type": result.data_type,
-            "data": data,
-            "confidence": result.confidence,
-        })
-
-    # Build final nodes and edges from groups
-    for source, group in source_groups.items():
-        nodes.append({
-            "id": group["id"],
-            "type": group["type"],
-            "label": group["label"],
-            "source": group["source"],
-            "source_url": group["source_url"],
-            "found": group["found"],
-            "risk_level": group["risk_level"],
-            "is_root": False,
-            "data": {
-                "results": group["results"],
-                "result_count": len(group["results"]),
-            },
-        })
-        edges.append({
-            "id": f"edge-{root_id}-{group['id']}",
-            "source": root_id,
-            "target": group["id"],
-            "label": group["relationship"],
-            "found": group["found"],
-        })
-
-    # Optional: Use networkx to calculate node centrality (importance)
-    try:
-        import networkx as nx
-        G = nx.Graph()
-        for node in nodes:
-            G.add_node(node["id"])
-        for edge in edges:
-            G.add_edge(edge["source"], edge["target"])
-        
-        # Compute centrality (degree centrality is safe for disconnected or strict star graphs)
-        centrality = nx.degree_centrality(G)
-        
-        for node in nodes:
-            # Map centrality score into the node properties (default to 0.1 if not found)
-            node["data"]["centrality"] = centrality.get(node["id"], 0.1)
-    except Exception as e:
-        # Fallback if networkx isn't installed or fails
-        pass
-
-    return {"nodes": nodes, "edges": edges}
+    return build_entity_graph(scan, db_results)
 
 
 @router.post("/{scan_id}/cancel", response_model=ScanResponse)
 def cancel_scan(
+    request: Request,
     scan_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -408,4 +263,5 @@ def cancel_scan(
         )
     
     scan = scan_service.cancel_scan(db, scan)
+    audit_service.record(db, "scan_cancelled", request=request, user_id=current_user.id, target=str(scan.id))
     return ScanResponse.model_validate(scan)

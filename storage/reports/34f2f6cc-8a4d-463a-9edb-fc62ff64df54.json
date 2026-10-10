@@ -1,0 +1,416 @@
+{
+    "report_name": "python.org \u2013 10/10/2026",
+    "scan_id": "4ceca678-cd0b-48c3-9f9b-b9e2234986dd",
+    "target_type": "domain",
+    "target_value": "python.org",
+    "scan_type": "quick",
+    "generated_at": "2026-10-10T18:21:29.584312",
+    "modules": [
+        {
+            "module": "domain_intel",
+            "display_name": "Domain Intelligence",
+            "status": "completed",
+            "result_count": 18,
+            "error": null
+        },
+        {
+            "module": "google_dork",
+            "display_name": "Search Engine Dork",
+            "status": "completed",
+            "result_count": 2,
+            "error": null
+        }
+    ],
+    "results": [
+        {
+            "module": "domain_intel",
+            "data_type": "dns_record",
+            "source": "DNS (aiodns)",
+            "source_url": null,
+            "confidence": 0.99,
+            "timestamp": "2026-10-10T18:20:22.096491",
+            "data": {
+                "count": 4,
+                "domain": "python.org",
+                "records": [
+                    "151.101.64.223",
+                    "151.101.192.223",
+                    "151.101.0.223",
+                    "151.101.128.223"
+                ],
+                "record_type": "A"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "dns_record",
+            "source": "DNS (aiodns)",
+            "source_url": null,
+            "confidence": 0.99,
+            "timestamp": "2026-10-10T18:20:22.096497",
+            "data": {
+                "count": 4,
+                "domain": "python.org",
+                "records": [
+                    "2a04:4e42::223",
+                    "2a04:4e42:200::223",
+                    "2a04:4e42:400::223",
+                    "2a04:4e42:600::223"
+                ],
+                "record_type": "AAAA"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "dns_record",
+            "source": "DNS (aiodns)",
+            "source_url": null,
+            "confidence": 0.99,
+            "timestamp": "2026-10-10T18:20:22.096503",
+            "data": {
+                "count": 1,
+                "domain": "python.org",
+                "records": [
+                    {
+                        "exchange": "mail.python.org",
+                        "priority": 50
+                    }
+                ],
+                "record_type": "MX"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "dns_record",
+            "source": "DNS (aiodns)",
+            "source_url": null,
+            "confidence": 0.99,
+            "timestamp": "2026-10-10T18:20:22.096509",
+            "data": {
+                "count": 4,
+                "domain": "python.org",
+                "records": [
+                    "ns-2046.awsdns-63.co.uk",
+                    "ns-1134.awsdns-13.org",
+                    "ns-484.awsdns-60.com",
+                    "ns-981.awsdns-58.net"
+                ],
+                "record_type": "NS"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "dns_record",
+            "source": "DNS (aiodns)",
+            "source_url": null,
+            "confidence": 0.99,
+            "timestamp": "2026-10-10T18:20:22.096515",
+            "data": {
+                "count": 13,
+                "domain": "python.org",
+                "records": [
+                    "status-page-domain-verification=9y2klhzbxsgk",
+                    "_globalsign-domain-verification=B57sRQpmte4G4w-gavZbVNmmNsMxGp5kcL19UP2599",
+                    "google-site-verification=9852CbTRhQ51-9gCUayPbGYqJeBle_MXLb6E4AL_qQk",
+                    "anthropic-domain-verification-x3xt87=cFLP3aL71pAYPZLQR7JKvRhcF",
+                    "google-site-verification=w3b8mU3wU6cZ8uSrj3E_5f1frPejJskDpSp_nMWJ99o",
+                    "google-site-verification=QALZObrGl2OVG8lWUE40uVSMCAka316yADn9ZfCU5OA",
+                    "v=spf1 mx ip4:188.166.95.178/32 ip6:2a03:b0c0:2:d0::71:1 include:stspg-customer.com include:_spf.google.com include:mailgun.org ~all",
+                    "libera-1298aas",
+                    "twilio-domain-verification=1c295667813cc0aaae819ed7657818f8",
+                    "888acb5757da46ad83b7e341ec544c64",
+                    "openai-domain-verification=dv-VgeNijVDgW7g56UZyGIVyKNr",
+                    "MS=73147F1EC0843C399CF17F586EC6B8EAF8C57961",
+                    "google-site-verification=dqhMiMzpbkSyEhgjGKyEOMlEg2tF0MSHD7UN-MYfD-M"
+                ],
+                "record_type": "TXT"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "domain_parts",
+            "source": "TLDExtract",
+            "source_url": null,
+            "confidence": 1.0,
+            "timestamp": "2026-10-10T18:20:22.096474",
+            "data": {
+                "fqdn": "python.org",
+                "domain": "python",
+                "suffix": "org",
+                "subdomain": "",
+                "registered_domain": "python.org"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "domain_registration",
+            "source": "WHOIS",
+            "source_url": null,
+            "confidence": 0.95,
+            "timestamp": "2026-10-10T18:20:22.096484",
+            "data": {
+                "org": null,
+                "domain": "python.org",
+                "emails": "abuse@support.gandi.net",
+                "status": "clientTransferProhibited https://icann.org/epp#clientTransferProhibited",
+                "country": null,
+                "registrar": "Gandi SAS",
+                "name_servers": [
+                    "ns-1134.awsdns-13.org",
+                    "ns-2046.awsdns-63.co.uk",
+                    "ns-484.awsdns-60.com",
+                    "ns-981.awsdns-58.net"
+                ],
+                "updated_date": "2026-08-12T05:01:11",
+                "creation_date": "1995-03-27T05:00:00",
+                "expiration_date": "2033-03-28T05:00:00"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "email_address",
+            "source": "DMARC Analysis",
+            "source_url": null,
+            "confidence": 0.95,
+            "timestamp": "2026-10-10T18:20:22.096555",
+            "data": {
+                "type": "DMARC Reporting Address",
+                "domain": "python.org",
+                "record": "\"v=DMARC1; p=none; pct=100; rua=mailto:re+shb8ybr70a3@dmarc.postmarkapp.com; sp=none; aspf=r;\""
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "email_infrastructure",
+            "source": "DNS TXT Analysis",
+            "source_url": null,
+            "confidence": 0.9,
+            "timestamp": "2026-10-10T18:20:22.096550",
+            "data": {
+                "type": "SPF/Email Infrastructure",
+                "domain": "python.org",
+                "record": "\"v=spf1 mx ip4:188.166.95.178/32 ip6:2a03:b0c0:2:d0::71:1 include:stspg-customer.com include:_spf.google.com include:mailgun.org ~all\""
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "ip_intel",
+            "source": "IP Intelligence (IPWhois + GeoIP)",
+            "source_url": null,
+            "confidence": 0.9,
+            "timestamp": "2026-10-10T18:20:22.096561",
+            "data": {
+                "ip": "151.101.64.223",
+                "asn": "54113",
+                "geo": {
+                    "isp": "Fastly, Inc.",
+                    "lat": 45.5019,
+                    "lon": -73.5674,
+                    "city": "Montreal",
+                    "region": "Quebec",
+                    "country": "Canada",
+                    "timezone": "America/Toronto"
+                },
+                "cidr": "151.101.0.0/16",
+                "domain": "python.org",
+                "country_code": "US",
+                "network_name": "SKYCA-3",
+                "asn_description": "FASTLY - Fastly, Inc., US"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "ip_intel",
+            "source": "IP Intelligence (IPWhois + GeoIP)",
+            "source_url": null,
+            "confidence": 0.9,
+            "timestamp": "2026-10-10T18:20:22.096567",
+            "data": {
+                "ip": "151.101.0.223",
+                "asn": "54113",
+                "geo": {
+                    "isp": "Fastly, Inc.",
+                    "lat": 45.5019,
+                    "lon": -73.5674,
+                    "city": "Montreal",
+                    "region": "Quebec",
+                    "country": "Canada",
+                    "timezone": "America/Toronto"
+                },
+                "cidr": "151.101.0.0/16",
+                "domain": "python.org",
+                "country_code": "US",
+                "network_name": "SKYCA-3",
+                "asn_description": "FASTLY - Fastly, Inc., US"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "ip_intel",
+            "source": "IP Intelligence (IPWhois + GeoIP)",
+            "source_url": null,
+            "confidence": 0.9,
+            "timestamp": "2026-10-10T18:20:22.096572",
+            "data": {
+                "ip": "151.101.128.223",
+                "asn": "54113",
+                "geo": {
+                    "isp": "Fastly, Inc.",
+                    "lat": 45.5019,
+                    "lon": -73.5674,
+                    "city": "Montreal",
+                    "region": "Quebec",
+                    "country": "Canada",
+                    "timezone": "America/Toronto"
+                },
+                "cidr": "151.101.0.0/16",
+                "domain": "python.org",
+                "country_code": "US",
+                "network_name": "SKYCA-3",
+                "asn_description": "FASTLY - Fastly, Inc., US"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "ip_intel",
+            "source": "IP Intelligence (IPWhois + GeoIP)",
+            "source_url": null,
+            "confidence": 0.9,
+            "timestamp": "2026-10-10T18:20:22.096578",
+            "data": {
+                "ip": "151.101.192.223",
+                "asn": "54113",
+                "geo": {
+                    "isp": "Fastly, Inc.",
+                    "lat": 45.5019,
+                    "lon": -73.5674,
+                    "city": "Montreal",
+                    "region": "Quebec",
+                    "country": "Canada",
+                    "timezone": "America/Toronto"
+                },
+                "cidr": "151.101.0.0/16",
+                "domain": "python.org",
+                "country_code": "US",
+                "network_name": "SKYCA-3",
+                "asn_description": "FASTLY - Fastly, Inc., US"
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "subdomain",
+            "source": "Subdomain Enumeration",
+            "source_url": "http://www.python.org",
+            "confidence": 0.85,
+            "timestamp": "2026-10-10T18:20:22.096521",
+            "data": {
+                "exists": true,
+                "subdomain": "www",
+                "full_domain": "www.python.org",
+                "ip_addresses": [
+                    "167.82.4.223"
+                ]
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "subdomain",
+            "source": "Subdomain Enumeration",
+            "source_url": "http://mail.python.org",
+            "confidence": 0.85,
+            "timestamp": "2026-10-10T18:20:22.096527",
+            "data": {
+                "exists": true,
+                "subdomain": "mail",
+                "full_domain": "mail.python.org",
+                "ip_addresses": [
+                    "188.166.95.178"
+                ]
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "subdomain",
+            "source": "Subdomain Enumeration",
+            "source_url": "http://test.python.org",
+            "confidence": 0.85,
+            "timestamp": "2026-10-10T18:20:22.096533",
+            "data": {
+                "exists": true,
+                "subdomain": "test",
+                "full_domain": "test.python.org",
+                "ip_addresses": [
+                    "151.101.192.223",
+                    "151.101.128.223",
+                    "151.101.64.223",
+                    "151.101.0.223"
+                ]
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "subdomain",
+            "source": "Subdomain Enumeration",
+            "source_url": "http://blog.python.org",
+            "confidence": 0.85,
+            "timestamp": "2026-10-10T18:20:22.096539",
+            "data": {
+                "exists": true,
+                "subdomain": "blog",
+                "full_domain": "blog.python.org",
+                "ip_addresses": [
+                    "185.199.110.153",
+                    "185.199.111.153",
+                    "185.199.108.153",
+                    "185.199.109.153"
+                ]
+            }
+        },
+        {
+            "module": "domain_intel",
+            "data_type": "subdomain",
+            "source": "Subdomain Enumeration",
+            "source_url": "http://docs.python.org",
+            "confidence": 0.85,
+            "timestamp": "2026-10-10T18:20:22.096544",
+            "data": {
+                "exists": true,
+                "subdomain": "docs",
+                "full_domain": "docs.python.org",
+                "ip_addresses": [
+                    "167.82.4.223"
+                ]
+            }
+        },
+        {
+            "module": "google_dork",
+            "data_type": "dork_result",
+            "source": "DuckDuckGo Dork",
+            "source_url": "https://education.python.org/static/guides/what_works_toolkit.pdf",
+            "confidence": 0.7,
+            "timestamp": "2026-10-10T18:20:32.317572",
+            "data": {
+                "url": "https://education.python.org/static/guides/what_works_toolkit.pdf",
+                "query": "site:python.org filetype:pdf OR filetype:xls",
+                "title": "PDF What Works - Python",
+                "target": "python.org",
+                "snippet": "PRIMM PRIMM is a structure that you can use to plan programming lessons. It is useful for programmers at different experience levels who are learning a new concept."
+            }
+        },
+        {
+            "module": "google_dork",
+            "data_type": "dork_result",
+            "source": "DuckDuckGo Dork",
+            "source_url": "https://www.python.org/accounts/login/",
+            "confidence": 0.7,
+            "timestamp": "2026-10-10T18:20:32.317583",
+            "data": {
+                "url": "https://www.python.org/accounts/login/",
+                "query": "inurl:python.org \"admin\" OR \"login\" OR \".env\"",
+                "title": "Sign In to Python.org",
+                "target": "python.org",
+                "snippet": "The official home of the Python Programming Language"
+            }
+        }
+    ]
+}

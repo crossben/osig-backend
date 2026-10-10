@@ -3,9 +3,11 @@ OSIG Backend - Security Utilities
 
 Password hashing and JWT token generation/validation.
 """
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 from passlib.context import CryptContext
 from app.core.config import settings
 
@@ -41,10 +43,34 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     
     return encoded_jwt
+
+
+def password_fingerprint(hashed_password: str) -> str:
+    """Short digest of the stored hash: changing the password changes it."""
+    return hashlib.sha256(hashed_password.encode()).hexdigest()[:16]
+
+
+def create_refresh_token(user_id: str, hashed_password: str) -> str:
+    """
+    Long-lived token used only to obtain new access tokens.
+    Bound to the password fingerprint, so a password change revokes every
+    outstanding refresh token without needing a token table.
+    """
+    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    payload = {"sub": user_id, "type": "refresh", "pwf": password_fingerprint(hashed_password), "exp": expire}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_token(token: str, expected_type: str) -> Optional[dict]:
+    """Decode and check the token type (tokens from before typing count as access)."""
+    payload = decode_access_token(token)
+    if payload is None or payload.get("type", "access") != expected_type:
+        return None
+    return payload
 
 
 def decode_access_token(token: str) -> Optional[dict]:

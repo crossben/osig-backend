@@ -19,6 +19,8 @@ class TargetType(str, enum.Enum):
     USERNAME = "username"
     DOMAIN = "domain"
     PHONE = "phone"
+    IP = "ip"
+    ORGANIZATION = "organization"
 
 
 class ScanType(str, enum.Enum):
@@ -69,12 +71,21 @@ class Scan(Base):
     
     # Error tracking
     error_message = Column(Text, nullable=True)
+
+    # Investigation / pivot lineage / scheduled re-scans
+    investigation_id = Column(UUID(as_uuid=True), ForeignKey("investigations.id", ondelete="SET NULL"),
+                              nullable=True, index=True)
+    parent_scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"), nullable=True)
+    pivot_entity = Column(String, nullable=True)  # graph node id this scan was started from
+    watch_id = Column(UUID(as_uuid=True), ForeignKey("watches.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Relationships
     user = relationship("User", back_populates="scans")
     modules = relationship("ScanModule", back_populates="scan", cascade="all, delete-orphan")
     results = relationship("Result", back_populates="scan", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="scan", cascade="all, delete-orphan")
+    investigation = relationship("Investigation", back_populates="scans")
+    watch = relationship("Watch", back_populates="scans")
     
     def __repr__(self):
         return f"<Scan {self.id} - {self.target_type.value}: {self.target_value}>"

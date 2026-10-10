@@ -34,6 +34,8 @@ class UserLogin(BaseModel):
 # User Response
 class UserResponse(UserBase):
     """Schema for user response (without password)."""
+    has_password: bool = True
+    google_linked: bool = False
     id: UUID
     plan: UserPlan
     avatar_url: Optional[str] = None
@@ -48,8 +50,8 @@ class UserResponse(UserBase):
 # User Update
 class UserUpdate(BaseModel):
     """Schema for updating user profile."""
-    full_name: Optional[str] = None
-    avatar_url: Optional[str] = None
+    full_name: Optional[str] = Field(None, max_length=100)
+    avatar_url: Optional[str] = Field(None, max_length=500)
 
 
 # Password Change
@@ -66,9 +68,22 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
-# Auth Response (includes user and token)
+# Auth Response (includes user and tokens)
 class AuthResponse(BaseModel):
-    """Schema for authentication response with user and token."""
+    """Schema for authentication response with user and tokens."""
     user: UserResponse
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+    expires_in: int
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class TokenPair(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int

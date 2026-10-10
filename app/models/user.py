@@ -31,6 +31,11 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
+
+    # Sign-in with Google: stable Google account id ("sub" claim)
+    google_sub = Column(String, unique=True, index=True, nullable=True)
+    # False for accounts created through Google until they set a password
+    has_password = Column(Boolean, default=True, server_default="true", nullable=False)
     
     # Plan and status
     plan = Column(Enum(UserPlan), default=UserPlan.FREE, nullable=False)
@@ -41,6 +46,10 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
+    @property
+    def google_linked(self) -> bool:
+        return bool(self.google_sub)
+
     # Relationships
     scans = relationship("Scan", back_populates="user", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="user", cascade="all, delete-orphan")

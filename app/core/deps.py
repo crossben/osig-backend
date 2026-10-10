@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.core.security import decode_access_token
+from app.core.security import decode_token
 from app.models.user import User
 
 # HTTP Bearer token security
@@ -54,7 +54,7 @@ def get_current_user(
     
     # Decode token
     token = credentials.credentials
-    payload = decode_access_token(token)
+    payload = decode_token(token, "access")  # refresh tokens are rejected here
     
     if payload is None:
         raise credentials_exception

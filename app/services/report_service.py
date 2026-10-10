@@ -16,6 +16,9 @@ from app.models.scan import Scan, ScanStatus
 from app.models.user import User
 from app.schemas.report import CreateReportRequest
 from app.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ReportService:
     def get_user_reports(self, db: Session, user_id: str, page: int = 1, page_size: int = 10) -> Tuple[List[Report], int]:
@@ -51,6 +54,7 @@ class ReportService:
         try:
             self._generate_report_sync(db, report, scan)
         except Exception as e:
+            logger.error(f"Report {report.id} generation failed: {e}", exc_info=True)
             report.status = ReportStatus.FAILED
             db.commit()
         
@@ -64,36 +68,47 @@ class ReportService:
         
         file_path = os.path.join(reports_dir, f"{report.id}.{report.format.value}")
         
+        results = sorted(scan.results, key=lambda r: (r.module, r.data_type, -r.confidence))
+
         # Build payload
         payload = {
             "report_name": report.name,
             "scan_id": str(scan.id),
             "target_type": scan.target_type.value,
             "target_value": scan.target_value,
+            "scan_type": scan.scan_type.value,
             "generated_at": datetime.utcnow().isoformat(),
-            "results": [{"module": mod.name, "result_count": mod.result_count} for mod in scan.modules]
+            "modules": [
+                {
+                    "module": mod.name,
+                    "display_name": mod.display_name,
+                    "status": mod.status.value,
+                    "result_count": mod.result_count,
+                    "error": mod.error,
+                }
+                for mod in scan.modules
+            ],
+            "results": [
+                {
+                    "module": r.module,
+                    "data_type": r.data_type,
+                    "source": r.source,
+                    "source_url": r.source_url,
+                    "confidence": r.confidence,
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                    "data": r.data,
+                }
+                for r in results
+            ],
         }
-        
+
         if report.format == ReportFormat.JSON:
             with open(file_path, "w") as f:
-                json.dump(payload, f, indent=4)
+                json.dump(payload, f, indent=4, default=str)
         elif report.format == ReportFormat.PDF:
-            # Requires ReportLab or WeasyPrint
-            try:
-                from reportlab.pdfgen import canvas
-                c = canvas.Canvas(file_path)
-                c.drawString(100, 800, f"OSIG Report: {report.name}")
-                c.drawString(100, 780, f"Target: {scan.target_value} ({scan.target_type.value})")
-                c.drawString(100, 760, f"Date: {datetime.utcnow().isoformat()}")
-                y = 720
-                for mod in scan.modules:
-                    c.drawString(100, y, f"- {mod.name}: {mod.result_count} results")
-                    y -= 20
-                c.drawString(100, y-20, "Disclaimer: Public info only.")
-                c.save()
-            except ImportError:
-                raise Exception("ReportLab is not installed.")
-                
+            from app.services.report_pdf import render_pdf_report
+            render_pdf_report(file_path, report.name, scan, results)
+
         # Update db record
         report.file_path = file_path
         report.file_size = os.path.getsize(file_path)

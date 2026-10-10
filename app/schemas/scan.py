@@ -56,6 +56,23 @@ class CreateScanRequest(ScanBase):
             if not re.match(phone_pattern, v):
                 raise ValueError('Invalid phone number format')
         
+        elif target_type == TargetType.IP:
+            import ipaddress
+            try:
+                addr = ipaddress.ip_address(v.strip())
+            except ValueError:
+                raise ValueError('Invalid IP address')
+            # Public addresses only: private/loopback/link-local targets aren't OSINT
+            if not addr.is_global:
+                raise ValueError('Only public IP addresses can be scanned')
+            return str(addr)
+
+        elif target_type == TargetType.ORGANIZATION:
+            v = re.sub(r'\s+', ' ', v.strip())
+            if not re.match(r"^[\w][\w .,&'()\-]{1,119}$", v, re.UNICODE):
+                raise ValueError('Enter an organization name (2-120 characters)')
+            return v
+
         elif target_type == TargetType.USERNAME:
             # Username validation (alphanumeric, underscore, hyphen)
             username_pattern = r'^[a-zA-Z0-9_-]{3,50}$'
@@ -77,8 +94,20 @@ class ScanResponse(ScanBase):
     created_at: datetime
     updated_at: datetime
     error_message: Optional[str] = None
+    investigation_id: Optional[UUID] = None
+    parent_scan_id: Optional[UUID] = None
+    pivot_entity: Optional[str] = None
+    watch_id: Optional[UUID] = None
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class PivotRequest(BaseModel):
+    """Start a scan on an entity found by another scan."""
+    entity_id: str = Field(..., max_length=500)
+    target_type: TargetType
+    target_value: str = Field(..., min_length=1, max_length=320)
+    scan_type: ScanType = ScanType.QUICK
 
 
 # Scan List Response
