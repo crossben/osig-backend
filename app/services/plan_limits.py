@@ -32,7 +32,9 @@ DEFAULT_PLANS: Dict[str, Dict[str, Any]] = {
                    "identities": 10, "household": 5},
     },
     "enterprise": {
-        "name": "Enterprise", "rank": 2, "self_serve": False, "prices": {},
+        # Not sold online ("contact us"): the prices exist so Yoon can grant it (comp) and rank it
+        "name": "Enterprise", "rank": 2, "self_serve": False,
+        "prices": {"XOF": {"month": 25000, "year": 250000}, "USD": {"month": 4900, "year": 49000}},
         "limits": {"daily_scans": UNLIMITED, "deep_scans": True, "watches": 100, "min_watch_interval_hours": 6,
                    "bulk_max": 50, "exports": True, "sharing": True, "api_keys": 10, "max_retention_days": None,
                    "identities": 25, "household": 10},

@@ -70,4 +70,4 @@ slowapi==0.1.9
 # Testing
 pytest>=9.0.3
 pytest-asyncio>=0.24.0
-yoonpay[fastapi]==0.2.0
+yoonpay[fastapi]==0.3.0

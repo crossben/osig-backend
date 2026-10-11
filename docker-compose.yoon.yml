@@ -18,7 +18,7 @@ services:
       retries: 10
 
   yoon:
-    image: ghcr.io/crossben/yoon:0.2.0
+    image: ghcr.io/crossben/yoon:0.3.0
     depends_on:
       yoon-db:
         condition: service_healthy
