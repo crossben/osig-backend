@@ -283,6 +283,12 @@ def update_profile(request: Request, update: UserUpdate, db: Session = Depends(g
         setattr(current_user, field, (value or None) if isinstance(value, str) and field != "language" else value)
     db.commit()
     db.refresh(current_user)
+    if "language" in changes:  # to-dos are written in the user's language
+        from app.services import footprint_service
+        try:
+            footprint_service.recompute(db, current_user, notify=False)
+        except Exception:
+            db.rollback()
     audit_service.record(db, "profile_updated", request=request, user_id=current_user.id)
     return UserResponse.model_validate(current_user)
 

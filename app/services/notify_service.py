@@ -61,6 +61,8 @@ def watch_run_finished(db: Session, scan_id: str) -> Optional[dict]:
                           f"Your watch on {watch.target_value} found changes since the previous run:\n\n"
                           + "\n".join(lines) + f"\n\nSee them in OSIG: {link}\n\n"
                           "Turn these emails off under Profile > Alerts.\n", kind="watch_alert")
+    from app.services import push_service
+    push_service.send(db, user.id, title, "\n".join(lines[:3]), "#/watches")
     if user.webhook_url:
         from app.osint.safe_http import safe_post_json
         try:

@@ -31,3 +31,4 @@ __all__ = [
 ]
 
 from app.models.billing import Payment, Plan, YoonEvent  # noqa: E402,F401
+from app.models.personal import ActionItem, HouseholdMember, Identity, PushSubscription, ScamCheck  # noqa: E402,F401

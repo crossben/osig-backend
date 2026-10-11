@@ -89,7 +89,10 @@ def create_watch(body: WatchIn, request: Request, db: Session = Depends(get_db),
     CreateScanRequest(target_type=body.target_type, target_value=body.target_value,
                       scan_type=body.scan_type, disclaimer_accepted=True)
     from app.services import plan_limits
-    plan_limits.require_below(db, user, "watches", db.query(Watch).filter(Watch.user_id == user.id).count(),
+    from app.services.footprint_service import identity_watch_ids
+    own = identity_watch_ids(db, user.id)  # "My footprint" watches don't count
+    plan_limits.require_below(db, user, "watches",
+                              sum(1 for (wid,) in db.query(Watch.id).filter(Watch.user_id == user.id) if wid not in own),
                               "Your plan watches up to {limit} targets.")
     _check_interval(db, user, body.interval_hours)
     w = Watch(user_id=user.id, target_type=body.target_type, target_value=body.target_value,

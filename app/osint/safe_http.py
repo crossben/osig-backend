@@ -54,18 +54,33 @@ def _pinned(url: str) -> Tuple[str, str, str]:
     return urlunparse(parts._replace(netloc=netloc_ip)), parts.hostname, ip
 
 
+MAX_BODY_BYTES = 2 * 1024 * 1024
+
+
 def safe_get(url: str, *, headers: Optional[Dict[str, str]] = None, timeout: float = 10.0,
-             verify: bool = True) -> httpx.Response:
-    """GET a target-controlled URL; follows up to MAX_REDIRECTS hops, each one re-vetted."""
+             verify: bool = True, max_bytes: int = MAX_BODY_BYTES) -> httpx.Response:
+    """GET a target-controlled URL; follows up to MAX_REDIRECTS hops, each one re-vetted.
+    The body is truncated at max_bytes (a hostile target can't exhaust memory)."""
     headers = dict(headers or {})
     with httpx.Client(timeout=timeout, verify=verify, follow_redirects=False) as client:
         for _ in range(MAX_REDIRECTS + 1):
             pinned_url, host, _ip = _pinned(url)
-            resp = client.get(
-                pinned_url,
+            request = client.build_request(
+                "GET", pinned_url,
                 headers={**headers, "Host": urlparse(url).netloc},
                 extensions={"sni_hostname": host},
             )
+            resp = client.send(request, stream=True)
+            body = bytearray()
+            try:
+                for chunk in resp.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) >= max_bytes:
+                        del body[max_bytes:]
+                        break
+            finally:
+                resp.close()
+            resp._content = bytes(body)
             if resp.is_redirect and resp.headers.get("location"):
                 url = urljoin(url, resp.headers["location"])
                 continue

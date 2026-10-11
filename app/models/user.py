@@ -59,6 +59,10 @@ class User(Base):
     pending_plan = Column(String(20), nullable=True)  # lower plan bought while a higher one runs
     pending_plan_days = Column(Integer, nullable=True)
     renewal_reminded_at = Column(DateTime, nullable=True)
+    # Personal protection
+    digest_enabled = Column(Boolean, default=True, server_default="true", nullable=False)  # weekly email
+    exposure_score = Column(Integer, nullable=True)  # 0-100, higher = safer; null until computed
+    score_updated_at = Column(DateTime, nullable=True)
     
     # Plan and status
     plan = Column(Enum(UserPlan), default=UserPlan.FREE, nullable=False)

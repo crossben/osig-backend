@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 os.environ["RATE_LIMIT_AUTH"] = "1000/minute"
 os.environ["RATE_LIMIT_SCANS"] = "1000/minute"
 os.environ["RATE_LIMIT_EMAIL"] = "1000/minute"
+os.environ["RATE_LIMIT_FOOTPRINT_REFRESH"] = "1000/minute"
 os.environ["SCAN_EXECUTOR"] = "thread"
 
 import uuid  # noqa: E402

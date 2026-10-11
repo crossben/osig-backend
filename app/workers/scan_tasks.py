@@ -259,7 +259,13 @@ def _alert_watch_owner(scan_id: str):
     try:
         watch_run_finished(db, scan_id)
     except Exception as e:
+        db.rollback()
         logger.error(f"Watch alert for scan {scan_id} failed: {e}", exc_info=True)
+    try:
+        from app.services.footprint_service import on_watch_run
+        on_watch_run(db, scan_id)  # "My footprint": actions + score
+    except Exception as e:
+        logger.error(f"Footprint recompute for scan {scan_id} failed: {e}", exc_info=True)
     finally:
         db.close()
 
@@ -396,5 +402,15 @@ def reconcile_payments_task():
     db = SessionLocal()
     try:
         return reconcile_pending(db)
+    finally:
+        db.close()
+
+
+@celery_app.task(name="osig.weekly_digest")
+def weekly_digest_task():
+    from app.services.footprint_service import send_weekly_digests
+    db = SessionLocal()
+    try:
+        return send_weekly_digests(db)
     finally:
         db.close()

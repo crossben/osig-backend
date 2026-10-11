@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     BILLING_GRACE_DAYS: int = 2
     BILLING_REMINDER_DAYS: int = 7
     
+    # Web Push (VAPID). Empty = push notifications off
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = "mailto:admin@localhost"
+    # No SMS provider yet: phone identities stay unverified (and unwatched) while false
+    SMS_ENABLED: bool = False
+    RATE_LIMIT_FOOTPRINT_REFRESH: str = "3/hour"
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
     

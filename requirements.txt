@@ -20,6 +20,7 @@ PyJWT>=2.10.0
 pyotp==2.10.0
 segno==1.6.6
 cryptography>=46
+pywebpush==2.5.0
 
 # Validation
 pydantic>=2.9.0

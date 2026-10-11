@@ -4,6 +4,7 @@ OSIG Backend - Celery Application Configuration
 Defines the Celery app instance and its settings.
 """
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -43,4 +44,5 @@ celery_app.conf.beat_schedule = {
     "expire-plans": {"task": "osig.expire_plans", "schedule": 3600.0},
     "reconcile-payments": {"task": "osig.reconcile_payments", "schedule": 300.0},
     "billing-reminders": {"task": "osig.billing_reminders", "schedule": 24 * 3600.0},
+    "weekly-digest": {"task": "osig.weekly_digest", "schedule": crontab(minute=0, hour=8, day_of_week="mon")},
 }

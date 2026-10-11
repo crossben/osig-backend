@@ -42,6 +42,8 @@ class UserResponse(UserBase):
     notify_email: bool = True
     webhook_url: Optional[str] = None
     language: str = "en"
+    digest_enabled: bool = True
+    exposure_score: Optional[int] = None
     id: UUID
     plan: UserPlan
     avatar_url: Optional[str] = None
@@ -62,6 +64,7 @@ class UserUpdate(BaseModel):
     notify_email: Optional[bool] = None
     webhook_url: Optional[str] = Field(None, max_length=500)
     language: Optional[str] = Field(None, pattern="^(en|fr)$")
+    digest_enabled: Optional[bool] = None
 
 
 # Password Change

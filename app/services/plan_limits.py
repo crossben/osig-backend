@@ -20,19 +20,22 @@ DEFAULT_PLANS: Dict[str, Dict[str, Any]] = {
     "free": {
         "name": "Free", "rank": 0, "self_serve": False, "prices": {},
         "limits": {"daily_scans": 10, "deep_scans": False, "watches": 2, "min_watch_interval_hours": 24,
-                   "bulk_max": 0, "exports": False, "sharing": False, "api_keys": 0, "max_retention_days": None},
+                   "bulk_max": 0, "exports": False, "sharing": False, "api_keys": 0, "max_retention_days": None,
+                   "identities": 3, "household": 0},
     },
     "pro": {
         "name": "Pro", "rank": 1, "self_serve": True,
         "prices": {"XOF": {"month": 5000, "quarter": 14000, "half": 27000, "year": 50000},
                    "USD": {"month": 900, "quarter": 2500, "half": 4800, "year": 9000}},
         "limits": {"daily_scans": 200, "deep_scans": True, "watches": 20, "min_watch_interval_hours": 6,
-                   "bulk_max": 50, "exports": True, "sharing": True, "api_keys": 3, "max_retention_days": None},
+                   "bulk_max": 50, "exports": True, "sharing": True, "api_keys": 3, "max_retention_days": None,
+                   "identities": 10, "household": 5},
     },
     "enterprise": {
         "name": "Enterprise", "rank": 2, "self_serve": False, "prices": {},
         "limits": {"daily_scans": UNLIMITED, "deep_scans": True, "watches": 100, "min_watch_interval_hours": 6,
-                   "bulk_max": 50, "exports": True, "sharing": True, "api_keys": 10, "max_retention_days": None},
+                   "bulk_max": 50, "exports": True, "sharing": True, "api_keys": 10, "max_retention_days": None,
+                   "identities": 25, "household": 10},
     },
 }
 

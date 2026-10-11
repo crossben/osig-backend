@@ -35,3 +35,16 @@ def test_public_address_allowed(monkeypatch):
 def test_non_http_scheme_refused():
     with pytest.raises(UnsafeTargetError):
         safe_get("file:///etc/passwd")
+
+
+def test_safe_get_truncates_huge_bodies(monkeypatch):
+    import httpx
+    from app.osint import safe_http
+    monkeypatch.setattr(safe_http, "public_addresses", lambda host, port=443: ["93.184.216.34"])
+
+    def handler(request):
+        return httpx.Response(200, content=b"x" * (safe_http.MAX_BODY_BYTES + 5000))
+    real_client = httpx.Client
+    monkeypatch.setattr(safe_http.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    resp = safe_http.safe_get("https://example.com/big")
+    assert len(resp.content) == safe_http.MAX_BODY_BYTES and resp.status_code == 200
