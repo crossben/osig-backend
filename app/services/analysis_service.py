@@ -41,6 +41,9 @@ DATE_KEYS = {
     "first_archived": ("First archived", "info"),
     "last_archived": ("Last archived", "info"),
     "last_analysis_date": ("Last analysed by VirusTotal", "info"),
+    "document_created": ("Document created", "info"),
+    "document_modified": ("Document last modified", "info"),
+    "attack_date": ("Claimed on a ransomware leak site", "critical"),
 }
 LABEL_KEYS = ("name", "title", "breach", "site", "platform", "domain", "email", "username", "company",
               "issuer", "subject", "host", "url")

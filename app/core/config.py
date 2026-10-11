@@ -61,6 +61,15 @@ class Settings(BaseSettings):
     ABUSEIPDB_API_KEY: str = ""
     OPENCORPORATES_API_TOKEN: str = ""
     NUMVERIFY_API_KEY: str = ""
+    # Sanctions/PEP screening. OpenSanctions data is CC BY-NC: a paid SaaS needs a commercial licence.
+    OPENSANCTIONS_API_KEY: str = ""
+    # AlienVault/LevelBlue OTX threat intel (free key; check the OTX EULA for commercial use)
+    OTX_API_KEY: str = ""
+    # GreyNoise: the keyless Community API is meant for non-commercial use; a key is sent when set
+    GREYNOISE_API_KEY: str = ""
+    # ransomware.live leak-site victim search (dark web mentions). Off by default: confirm its terms
+    # (commercial use may need their paid PRO API) before enabling.
+    ENABLE_RANSOMWARE_LIVE: bool = False
     # Known-bad link lists for the scam checker (optional; each check is skipped without its key)
     GOOGLE_WEB_RISK_API_KEY: str = ""  # Google Cloud Web Risk Lookup API (commercial Safe Browsing)
     URLHAUS_AUTH_KEY: str = ""  # abuse.ch URLhaus (free key; commercial use may need Spamhaus' paid API)

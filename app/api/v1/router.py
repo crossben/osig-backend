@@ -5,6 +5,7 @@ Main router that combines all API v1 endpoints.
 """
 from fastapi import APIRouter
 from app.api.v1 import analysis, auth, me, billing, check, investigations, meta, platform, reports, scans, watches
+from app.api.v1 import photo
 
 # Create main API router
 api_router = APIRouter()
@@ -23,3 +24,4 @@ api_router.include_router(platform.router)
 api_router.include_router(billing.router)
 api_router.include_router(me.router)
 api_router.include_router(check.router)
+api_router.include_router(photo.router)

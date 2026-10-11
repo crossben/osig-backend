@@ -144,3 +144,23 @@ class BaseOSINTModule(ABC):
             return False
             
         return True
+
+
+def redact(value: str, keep: int = 4) -> str:
+    """Never store a secret: its first few characters only, so the owner can recognise it."""
+    value = str(value or "")
+    return (value[:keep] + "…") if value else ""
+
+
+def prior_results(scan_id: Optional[str]) -> List[Any]:
+    """Results already saved for this scan (core modules run before background ones).
+    Lets a background module build on names/URLs found earlier; [] without a scan id."""
+    if not scan_id:
+        return []
+    from app.db.session import SessionLocal
+    from app.models.result import Result
+    db = SessionLocal()
+    try:
+        return db.query(Result).filter(Result.scan_id == scan_id).all()
+    finally:
+        db.close()

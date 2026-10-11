@@ -20,8 +20,11 @@ MAX_LINES = 25
 
 
 def _lines(changes: dict) -> list:
-    out = [f"+ {e['kind']}: {e['label']}" for e in changes["added"]]
-    out += [f"- {e['kind']}: {e['label']}" for e in changes["removed"]]
+    # A new homepage fingerprint replaces the old one: one readable line, not "+ / -"
+    snap = any(e["kind"] == "snapshot" for e in changes["added"])
+    out = ["~ Homepage content changed"] if snap else []
+    out += [f"+ {e['kind']}: {e['label']}" for e in changes["added"] if e["kind"] != "snapshot"]
+    out += [f"- {e['kind']}: {e['label']}" for e in changes["removed"] if e["kind"] != "snapshot"]
     if len(out) > MAX_LINES:
         out = out[:MAX_LINES] + [f"...and {len(out) - MAX_LINES} more"]
     return out

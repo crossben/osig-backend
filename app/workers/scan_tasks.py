@@ -22,6 +22,12 @@ from app.osint.google_dork import GoogleDorkModule
 from app.osint.ip_intel import IPIntelModule
 from app.osint.org_intel import OrganizationIntelModule
 from app.osint.base import OSINTResult
+from app.osint.code_leaks import CodeLeaksModule
+from app.osint.compliance_intel import ComplianceIntelModule
+from app.osint.darkweb import DarkWebModule
+from app.osint.doc_metadata import DocMetadataModule
+from app.osint.page_snapshot import PageSnapshotModule
+from app.osint.reputation_feeds import ReputationFeedsModule
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,13 +42,13 @@ def _get_core_modules(target_type: TargetType, scan_type: ScanType):
     if target_type == TargetType.EMAIL:
         core = [EmailIntelModule()]
     elif target_type == TargetType.DOMAIN:
-        core = [DomainIntelModule()]
+        core = [DomainIntelModule(), ReputationFeedsModule("domain"), PageSnapshotModule()]
     elif target_type == TargetType.PHONE:
         core = [PhoneIntelModule()]
     elif target_type == TargetType.USERNAME:
         core = [UsernameIntelModule()]
     elif target_type == TargetType.IP:
-        core = [IPIntelModule()]
+        core = [IPIntelModule(), ReputationFeedsModule("ip")]
     elif target_type == TargetType.ORGANIZATION:
         core = [OrganizationIntelModule()]
     else:
@@ -57,7 +63,16 @@ def _get_async_modules(target_type: TargetType, scan_type: ScanType):
     Scan completes before these finish.
     """
     target_str = target_type.value
-    return [(GoogleDorkModule(target_type=target_str), False)]
+    mods = [GoogleDorkModule(target_type=target_str)]
+    if target_type in (TargetType.DOMAIN, TargetType.EMAIL):
+        mods.append(CodeLeaksModule(target_str))
+    if target_type == TargetType.DOMAIN:
+        mods.append(DocMetadataModule())  # after the dorks: reuses document URLs they found
+    if target_type in (TargetType.DOMAIN, TargetType.ORGANIZATION):
+        mods.append(DarkWebModule(target_str))
+    if target_type in (TargetType.ORGANIZATION, TargetType.DOMAIN, TargetType.EMAIL, TargetType.USERNAME):
+        mods.append(ComplianceIntelModule(target_str))  # last: screens names found by the others
+    return [(m, False) for m in mods]
 
 
 def _run_modules(scan_id: str, module_pairs: list, start_progress: int = 5):
@@ -95,6 +110,8 @@ def _run_modules(scan_id: str, module_pairs: list, start_progress: int = 5):
             try:
                 sig = inspect.signature(module.run)
                 run_kwargs = {'deep': deep} if 'deep' in sig.parameters else {}
+                if 'scan_id' in sig.parameters:  # background modules reuse earlier findings
+                    run_kwargs['scan_id'] = str(scan.id)
 
                 # Dynamic timeout based on scan depth
                 # Quick scans should be fast, Deep scans need time for Sherlock/h8mail

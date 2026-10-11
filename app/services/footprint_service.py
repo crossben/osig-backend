@@ -223,6 +223,40 @@ def actions_for_scan(ident: Identity, scan: Scan, results: List[Result], lang: s
                               "your contacts which fingerprint is.",
                               "Des clés PGP non vérifiées ont été publiées pour cette adresse. Si l’une n’est pas à "
                               "vous, indiquez à vos contacts quelle empreinte est la bonne.")))
+        elif fid in ("code:secrets", "code:mentions"):
+            files = " ".join(str(e) for e in ev[:5])
+            out.append(_act(f"{fid}:{iid}", sev,
+                            L(f"Remove secrets linked to {v} from public code",
+                              f"Retirez les secrets liés à {v} du code public"),
+                            L("Remove the secret from the repository history and rotate it (a deleted file stays in "
+                              "the git history). Files: " + files,
+                              "Supprimez le secret de l’historique du dépôt et changez-le (un fichier supprimé reste "
+                              "dans l’historique git). Fichiers : " + files),
+                            "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/"
+                            "removing-sensitive-data-from-a-repository"))
+        elif fid == "darkweb:ransomware":
+            out.append(_act(f"darkweb:{iid}", sev,
+                            L(f"{v} is named on a ransomware leak site",
+                              f"{v} est cité sur un site de fuite de rançongiciel"),
+                            L("A ransomware group claims to hold stolen data. Confirm whether the claim is genuine with "
+                              "your IT or security provider, change passwords for affected systems, and check your "
+                              "breach-notification duties. Never pay or contact the group yourself.",
+                              "Un groupe de rançongiciel affirme détenir des données volées. Vérifiez la réalité de la "
+                              "revendication avec votre prestataire informatique ou sécurité, changez les mots de passe "
+                              "des systèmes concernés et vérifiez vos obligations de notification de fuite. Ne payez "
+                              "pas et ne contactez pas le groupe vous-même.")))
+        elif fid == "docs:metadata":
+            out.append(_act(f"docs:metadata:{iid}", sev,
+                            L(f"Strip author names from documents published on {v}",
+                              f"Retirez les noms d’auteurs des documents publiés sur {v}"),
+                            L("Your public PDFs and Office files reveal who wrote them and which software you use. "
+                              "Remove document properties before publishing (File > Info > Inspect Document in Office, "
+                              "or export a clean PDF).",
+                              "Vos PDF et fichiers Office publics révèlent leurs auteurs et vos logiciels. Supprimez les "
+                              "propriétés du document avant publication (Fichier > Informations > Inspecter le "
+                              "document dans Office, ou exportez un PDF propre).")))
+        elif fid.startswith("watchlist:"):
+            continue  # a name match on a list: nothing for the owner to fix (usually a namesake)
         elif fid in ("email:disposable", "email:no_mx", "phone:invalid", "phone:voip", "identity:mixed"):
             continue  # facts about the identifier, nothing for its owner to fix
         else:

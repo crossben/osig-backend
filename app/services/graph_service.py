@@ -19,7 +19,7 @@ VERIFICATION_RE = re.compile(r"^([a-z0-9][a-z0-9_.-]*?)[-_](?:domain[-_])?(?:sit
 KINDS = [
     "target", "source", "ip", "subdomain", "domain", "nameserver", "mailserver",
     "email", "network", "location", "organization", "service", "url",
-    "account", "breach", "port", "phone", "person", "lookalike",
+    "account", "breach", "port", "phone", "person", "lookalike", "watchlist", "document", "snapshot",
 ]
 
 
@@ -416,6 +416,66 @@ class _GraphBuilder:
                                   details={"title": data.get("title"), "query": data.get("query")})
                 for email in _as_list(data.get("emails")):
                     self.link(page, self.entity("email", email, source=result.source), "lists")
+
+        elif dt in ("sanctions_match", "offshore_match"):
+            queried = data.get("name_queried")
+            kind = "person" if data.get("schema") == "Person" else "organization"
+            subject = self.found(src, kind, queried, "screened")
+            category = data.get("category") or "offshore"
+            label = {"sanctions": "sanctions list", "pep": "PEP list", "crime": "crime list",
+                     "offshore": "Offshore Leaks"}.get(category, "watchlist")
+            hit = self.entity("watchlist", f"{dt}:{data.get('entity_id') or data.get('node_id') or data.get('matched_name')}",
+                              source=result.source, label=f"Possible match: {data.get('matched_name')} ({label})",
+                              details={"score": data.get("score") or data.get("similarity"),
+                                       "datasets": ", ".join((data.get("datasets") or [])[:5]) or None,
+                                       "countries": ", ".join(data.get("countries") or []) or None,
+                                       "note": data.get("note")},
+                              risk="high" if category in ("sanctions", "crime") else "medium")
+            self.link(subject, hit, "possible match")
+            self.link(src, hit, "listed in")
+
+        elif dt == "code_leak":
+            path = f"{data.get('repo')}/{data.get('path')}"
+            self.found(src, "url", data.get("html_url"), "leaked in code",
+                       label=path if len(path) < 48 else path[:46] + "…",
+                       details={"kind": data.get("kind"), "preview": data.get("preview")},
+                       risk="high" if data.get("likely_credential") else "medium")
+
+        elif dt == "document_metadata":
+            url = data.get("url")
+            name = urlparse(url or "").path.rsplit("/", 1)[-1] or url
+            doc = self.found(src, "document", url, "published", label=name[:48],
+                             details={"title": data.get("title"), "created": data.get("document_created")})
+            for key, rel in (("author", "authored by"), ("last_modified_by", "last edited by")):
+                if data.get(key):
+                    self.link(doc, self.entity("person", data[key], source=result.source), rel)
+            for key in ("creator", "producer"):
+                if data.get(key):
+                    self.link(doc, self.entity("service", f"tech:{data[key]}", source=result.source,
+                                               label=data[key], details={"category": "software"}), "made with")
+            if data.get("company"):
+                self.link(doc, self.entity("organization", data["company"], source=result.source), "company")
+
+        elif dt == "darkweb_mention":
+            self.found(src, "breach", f"darkweb:{data.get('onion_host') or data.get('victim')}:{data.get('group')}",
+                       "leak-site claim", risk="high",
+                       label=f"{data.get('group') or 'Ransomware'} leak-site claim",
+                       details={"onion_host": data.get("onion_host"), "date": data.get("attack_date")})
+
+        elif dt == "threat_intel":
+            root = self.nodes[self.current_root]
+            if data.get("pulse_count"):
+                root["details"].setdefault("otx_pulses", data["pulse_count"])
+                if data.get("malware_families") and not data.get("allowlisted"):
+                    root["risk"] = "high"
+            for fam in _as_list(data.get("malware_families"))[:6]:
+                self.found(src, "service", f"malware:{fam}", "associated malware", label=fam, risk="high")
+
+        elif dt == "page_snapshot":
+            if data.get("fingerprint"):
+                self.found(src, "snapshot", f"homepage:{data['fingerprint']}", "homepage content",
+                           label=f"Homepage content #{data['fingerprint'][:8]}",
+                           details={"title": data.get("title"), "sample": data.get("text_sample")})
 
     def _profile_links(self, acct: Optional[str], source: str, profile: Dict[str, Any]) -> None:
         """Websites, locations, employers and linked accounts named on a public profile."""

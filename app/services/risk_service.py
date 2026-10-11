@@ -320,6 +320,85 @@ def assess(scan, results: List) -> Dict[str, Any]:
     if mentions:
         a.findings.append(f"{len(mentions)} public page{'s' if len(mentions) != 1 else ''} mention the target")
 
+    # ── sanctions / PEP / offshore screening (possible matches only) ──
+    screened = by_type.get("sanctions_match", [])
+    for category, key, severity, what in (
+            ("sanctions", "watchlist:sanctions", "critical", "a sanctions list"),
+            ("crime", "watchlist:crime", "high", "a crime or wanted list"),
+            ("pep", "watchlist:pep", "medium", "a politically exposed persons (PEP) list")):
+        hits = [r for r in screened if r.data.get("category") == category]
+        if hits:
+            strong = max(float(r.data.get("score") or 0) for r in hits)
+            a.flag(key, severity if category != "sanctions" or strong >= 0.9 else "high",
+                   f"Possible match on {what} for {', '.join(sorted({str(r.data.get('name_queried')) for r in hits})[:3])}. "
+                   "This is a name match only: confirm identity (date of birth, country, registration numbers) "
+                   "before acting on it.", "OpenSanctions",
+                   [f"{r.data.get('matched_name')} · {round(float(r.data.get('score') or 0) * 100)}% · "
+                    + ", ".join((r.data.get("datasets") or [])[:2]) for r in hits])
+    offshore = by_type.get("offshore_match", [])
+    if offshore:
+        a.flag("watchlist:offshore", "medium",
+               f"{len(offshore)} possible match{'es' if len(offshore) != 1 else ''} in the ICIJ Offshore Leaks database. "
+               "Appearing there does not imply wrongdoing, and names can match different people or companies.",
+               "ICIJ Offshore Leaks", [f"{r.data.get('matched_name')} ({r.data.get('node_type') or 'entity'})" for r in offshore])
+
+    # ── secrets in public code ─────────────────────────────
+    leaks = by_type.get("code_leak", [])
+    creds = [r for r in leaks if r.data.get("likely_credential")]
+    if creds:
+        a.flag("code:secrets", "high",
+               f"{len(creds)} public code file{'s' if len(creds) != 1 else ''} on GitHub appear to contain credentials "
+               "next to this target (passwords, API keys or private keys). Treat them as compromised: rotate them "
+               "and remove them from the repository history.", "GitHub Code Search",
+               [f"{r.data.get('repo')}/{r.data.get('path')} ({r.data.get('preview') or r.data.get('kind')})" for r in creds])
+    rest = [r for r in leaks if not r.data.get("likely_credential")]
+    if rest:
+        a.flag("code:mentions", "medium",
+               f"{len(rest)} public code file{'s' if len(rest) != 1 else ''} mention this target next to secret-related "
+               "words or in configuration files. Check they don't expose anything sensitive.", "GitHub Code Search",
+               [r.data.get("html_url") for r in rest])
+
+    # ── document metadata ──────────────────────────────────
+    for r in by_type.get("document_metadata_summary", []):
+        people = r.data.get("people") or []
+        if people:
+            logins = [p for p in people if " " not in p.strip()]
+            a.flag("docs:metadata", "medium" if logins else "low",
+                   f"Metadata in {r.data.get('documents')} public document{'s' if r.data.get('documents') != 1 else ''} "
+                   f"names {len(people)} author{'s' if len(people) != 1 else ''}"
+                   + (", including what look like internal usernames" if logins else "")
+                   + ". Attackers use these for phishing and password guessing: strip metadata before publishing.",
+                   r.source, people)
+        if r.data.get("software"):
+            a.findings.append("Documents made with " + ", ".join(r.data["software"][:5]))
+
+    # ── dark web (ransomware leak sites) ───────────────────
+    claims = by_type.get("darkweb_mention", [])
+    if claims:
+        a.flag("darkweb:ransomware", "high",
+               f"Named on {len(claims)} ransomware leak-site post{'s' if len(claims) != 1 else ''}: the group claims "
+               "to have stolen data. Check whether the claim is genuine and prepare breach notification.",
+               "ransomware.live", [f"{r.data.get('group')} · {r.data.get('attack_date') or 'date unknown'}" for r in claims])
+
+    # ── threat-intel feeds (OTX) ───────────────────────────
+    for r in by_type.get("threat_intel", []):
+        d = r.data
+        if d.get("allowlisted"):
+            a.findings.append(f"OTX allow-lists {d.get('indicator')} ({', '.join(d['allowlisted'][:2])})")
+            continue
+        if d.get("pulse_count"):
+            a.flag("intel:otx", "high" if d.get("malware_families") else "medium",
+                   f"{d['pulse_count']} AlienVault OTX threat report{'s' if d['pulse_count'] != 1 else ''} mention "
+                   f"{d.get('indicator')}"
+                   + (f", linked to malware ({', '.join(d['malware_families'][:3])})" if d.get("malware_families") else "")
+                   + ". Reports can be stale or about shared hosting: review them.", r.source,
+                   (d.get("pulses") or [])[:5])
+
+    # ── homepage snapshot ──────────────────────────────────
+    for r in by_type.get("page_snapshot", []):
+        if r.data.get("title"):
+            a.findings.append(f"Homepage fingerprint #{str(r.data.get('fingerprint'))[:8]} (“{r.data['title'][:60]}”)")
+
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     a.flags.sort(key=lambda f: order[f["severity"]])
     score = min(100, sum(WEIGHT[f["severity"]] for f in a.flags))

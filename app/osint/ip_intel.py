@@ -71,24 +71,8 @@ class IPIntelModule(BaseOSINTModule):
         )
 
     def _greynoise(self, ip: str) -> Optional[OSINTResult]:
-        r = httpx.get(f"https://api.greynoise.io/v3/community/{ip}", headers=UA, timeout=12)
-        if r.status_code not in (200, 404):
-            return None
-        d = r.json()
-        return OSINTResult(
-            source="GreyNoise",
-            source_url=f"https://viz.greynoise.io/ip/{ip}",
-            data_type="ip_reputation",
-            data={
-                "ip": ip,
-                "scanning_internet": bool(d.get("noise")),
-                "known_benign_service": bool(d.get("riot")),
-                "classification": d.get("classification"),
-                "name": d.get("name"),
-                "last_seen": d.get("last_seen"),
-            },
-            confidence=0.9,
-        )
+        from app.osint.reputation_feeds import greynoise  # sends GREYNOISE_API_KEY when set
+        return greynoise(ip)
 
     def _hosted_domains(self, ip: str) -> Optional[OSINTResult]:
         if ":" in ip:
