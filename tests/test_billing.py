@@ -70,9 +70,16 @@ def _user(db, uid):
 
 
 def _checkout(client, headers, period="month", country="SN", plan="pro"):
-    r = client.post("/api/v1/billing/checkout", headers=headers, json={"plan": plan, "period": period, "country": country})
-    assert r.status_code == 201, r.text
-    return r.json()
+    """A legacy one-off payment (the HTTP endpoint is retired; pending ones must still settle)."""
+    from app.db.session import SessionLocal
+    me = client.get("/api/v1/auth/me", headers=headers).json()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == me["id"]).one()
+        p = billing_service.checkout(db, user, plan, period, country)
+        return {"reference": p.reference, "amount": p.amount, "currency": p.currency}
+    finally:
+        db.close()
 
 
 # ── plans & checkout ─────────────────────────────────────────────
@@ -92,7 +99,7 @@ def test_plans_are_public_and_prices_come_from_the_server(client, yoon, free_use
 def test_enterprise_and_free_cant_be_bought(client, yoon, free_user):
     headers, _ = free_user
     for plan in ("enterprise", "free"):
-        r = client.post("/api/v1/billing/checkout", headers=headers, json={"plan": plan, "period": "month", "country": "SN"})
+        r = client.post("/api/v1/billing/subscribe", headers=headers, json={"plan": plan, "period": "month", "country": "SN"})
         assert r.status_code == 400
 
 

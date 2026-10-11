@@ -59,6 +59,10 @@ class User(Base):
     pending_plan = Column(String(20), nullable=True)  # lower plan bought while a higher one runs
     pending_plan_days = Column(Integer, nullable=True)
     renewal_reminded_at = Column(DateTime, nullable=True)
+    # Yoon 0.3.0 subscriptions (when set, Yoon owns renewals, grace and expiry for this user)
+    yoon_customer_id = Column(String(64), nullable=True, unique=True, index=True)
+    yoon_subscription_id = Column(String(64), nullable=True, index=True)
+    yoon_subscription_updated_at = Column(DateTime, nullable=True)  # ignore older (out-of-order) events
     # Personal protection
     digest_enabled = Column(Boolean, default=True, server_default="true", nullable=False)  # weekly email
     exposure_score = Column(Integer, nullable=True)  # 0-100, higher = safer; null until computed

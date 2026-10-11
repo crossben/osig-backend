@@ -414,3 +414,25 @@ def weekly_digest_task():
         return send_weekly_digests(db)
     finally:
         db.close()
+
+
+@celery_app.task(name="osig.reconcile_subscriptions")
+def reconcile_subscriptions_task():
+    """Safety net for missed webhooks (e.g. OSIG was down): re-read Yoon subscriptions."""
+    from app.models.user import User
+    from app.services.billing_service import enabled
+    from app.services.subscription_service import BillingError, reconcile_user
+    if not enabled():
+        return 0
+    db = SessionLocal()
+    done = 0
+    try:
+        for user in db.query(User).filter(User.yoon_customer_id.isnot(None)).limit(500).all():
+            try:
+                reconcile_user(db, user)
+                done += 1
+            except BillingError:
+                db.rollback()
+        return done
+    finally:
+        db.close()

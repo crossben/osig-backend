@@ -42,7 +42,8 @@ celery_app.conf.beat_schedule = {
     "run-due-watches": {"task": "osig.run_due_watches", "schedule": 300.0},
     "purge-expired-data": {"task": "osig.purge_expired_data", "schedule": 6 * 3600.0},
     "expire-plans": {"task": "osig.expire_plans", "schedule": 3600.0},
-    "reconcile-payments": {"task": "osig.reconcile_payments", "schedule": 300.0},
+    "reconcile-payments": {"task": "osig.reconcile_payments", "schedule": 300.0},  # old one-off payments still pending
+    "reconcile-subscriptions": {"task": "osig.reconcile_subscriptions", "schedule": 6 * 3600.0},
     "billing-reminders": {"task": "osig.billing_reminders", "schedule": 24 * 3600.0},
     "weekly-digest": {"task": "osig.weekly_digest", "schedule": crontab(minute=0, hour=8, day_of_week="mon")},
 }

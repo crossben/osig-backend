@@ -57,6 +57,7 @@ def my_billing(db: Session = Depends(get_db), user: User = Depends(get_session_u
     return {
         "plan": user.plan.value, "plan_name": info["name"], "expires_at": user.plan_expires_at,
         "source": user.plan_source, "pending_plan": user.pending_plan, "pending_plan_days": user.pending_plan_days,
+        "subscription": bool(user.yoon_subscription_id),
         "grace_days": settings.BILLING_GRACE_DAYS, "limits": info["limits"],
         "usage": {
             "scans_today": used, "daily_scans": daily,
@@ -73,17 +74,47 @@ class CheckoutIn(BaseModel):
     country: str = Field(..., pattern="^[A-Za-z]{2}$")
 
 
+@router.post("/subscribe")
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+def subscribe(body: CheckoutIn, request: Request, db: Session = Depends(get_db),
+              user: User = Depends(get_verified_user)):
+    """Buy, renew or change plan through a Yoon subscription. Returns {checkoutUrl} to open, or
+    {scheduled: true} for a cheaper plan that starts at the end of the current period.
+    Access is granted later, only by Yoon's signed subscription events."""
+    from app.services import subscription_service
+    if getattr(user, "via_api_key", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sign in to buy a plan")
+    if not billing_service.enabled():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Payments aren't set up on this server yet.")
+    try:
+        out = subscription_service.subscribe(db, user, body.plan, body.period, body.country)
+    except subscription_service.BillingError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    audit_service.record(db, "subscribe_started", request=request, user_id=user.id,
+                         target=f"{body.plan}/{body.period} {body.country.upper()} {'scheduled' if out.get('scheduled') else 'checkout'}")
+    return out
+
+
+@router.post("/subscription/sync")
+@limiter.limit("20/minute")
+def sync_subscription(request: Request, db: Session = Depends(get_db), user: User = Depends(get_session_user)):
+    """Re-read the user's subscription from Yoon (after returning from checkout, or after an outage)."""
+    from app.services import subscription_service
+    try:
+        subscription_service.reconcile_user(db, user)
+    except subscription_service.BillingError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    db.refresh(user)
+    return {"plan": user.plan.value, "expires_at": user.plan_expires_at, "source": user.plan_source,
+            "pending_plan": user.pending_plan}
+
+
 @router.post("/checkout", status_code=status.HTTP_201_CREATED)
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 def start_checkout(body: CheckoutIn, request: Request, db: Session = Depends(get_db),
                    user: User = Depends(get_verified_user)):
-    if getattr(user, "via_api_key", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sign in to buy a plan")
-    payment = billing_service.checkout(db, user, body.plan, body.period, body.country)
-    audit_service.record(db, "checkout_started", request=request, user_id=user.id,
-                         target=f"{payment.reference} {payment.plan}/{payment.period} {payment.amount} {payment.currency}")
-    return {"reference": payment.reference, "checkout_url": payment.checkout_url,
-            "amount": payment.amount, "currency": payment.currency}
+    """Retired: one-off payments are read-only while pending ones settle. Use /billing/subscribe."""
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="This payment flow was replaced. Refresh the page.")
 
 
 @router.get("/payments/{reference}")
@@ -110,7 +141,10 @@ async def yoon_webhook(request: Request, db: Session = Depends(get_db)):
     if db.get(YoonEvent, event.id):
         return Response(status_code=200)
     obj = event.object or {}
-    if event.type in ("payment.succeeded", "payment.failed", "payment.expired"):
+    from app.services import subscription_service
+    if subscription_service.handle_event(db, event.type, obj):  # Yoon 0.3.0 subscriptions
+        audit_service.record(db, f"billing_{event.type.replace('.', '_')}", target=str(obj.get("id")))
+    elif event.type in ("payment.succeeded", "payment.failed", "payment.expired"):  # one-off payments (read-only path)
         payment = db.query(Payment).filter(
             (Payment.yoon_payment_id == obj.get("id")) | (Payment.reference == obj.get("reference"))).first()
         if payment:

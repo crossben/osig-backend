@@ -213,7 +213,8 @@ def expire_plans(db: Session) -> int:
     now = datetime.utcnow()
     cutoff = now - timedelta(days=settings.BILLING_GRACE_DAYS)
     lapsed = db.query(User).filter(User.plan != UserPlan.FREE, User.plan_expires_at.isnot(None),
-                                   User.plan_expires_at < cutoff).with_for_update().all()
+                                   User.plan_expires_at < cutoff,
+                                   User.yoon_subscription_id.is_(None)).with_for_update().all()  # Yoon expires its own
     for user in lapsed:
         old = _plan_name(db, _plan_value(user))
         if user.pending_plan:
@@ -236,7 +237,8 @@ def send_renewal_reminders(db: Session) -> int:
     soon = now + timedelta(days=settings.BILLING_REMINDER_DAYS)
     users = db.query(User).filter(User.plan != UserPlan.FREE, User.plan_expires_at.isnot(None),
                                   User.plan_expires_at > now, User.plan_expires_at <= soon,
-                                  User.renewal_reminded_at.is_(None), User.pending_plan.is_(None)).all()
+                                  User.renewal_reminded_at.is_(None), User.pending_plan.is_(None),
+                                  User.yoon_subscription_id.is_(None)).all()  # Yoon sends renewal_upcoming
     for user in users:
         mail_service.send(db, user.email, f"Your OSIG {_plan_name(db, _plan_value(user))} plan ends soon",
                           f"Your plan ends on {user.plan_expires_at:%d %B %Y}. Renew before then to keep it; "

@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     YOON_API_URL: str = ""
     YOON_API_KEY: str = ""
     YOON_WEBHOOK_SECRET: str = ""
+    # Operator API, only for one-off scripts (scripts/yoon_migrate_users.py); never used by the app itself
+    YOON_ADMIN_TOKEN: str = ""
+    YOON_APPLICATION_ID: str = ""
     BILLING_GRACE_DAYS: int = 2
     BILLING_REMINDER_DAYS: int = 7
     
