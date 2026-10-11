@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     ABUSEIPDB_API_KEY: str = ""
     OPENCORPORATES_API_TOKEN: str = ""
     NUMVERIFY_API_KEY: str = ""
+    # Known-bad link lists for the scam checker (optional; each check is skipped without its key)
+    GOOGLE_WEB_RISK_API_KEY: str = ""  # Google Cloud Web Risk Lookup API (commercial Safe Browsing)
+    URLHAUS_AUTH_KEY: str = ""  # abuse.ch URLhaus (free key; commercial use may need Spamhaus' paid API)
 
     # Rate limiting (per client IP) for auth and scan creation
     RATE_LIMIT_AUTH: str = "10/minute"

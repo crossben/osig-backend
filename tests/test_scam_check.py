@@ -9,6 +9,9 @@ from app.models.personal import ScamCheck
 from app.osint import safe_http
 from app.services import scam_check as sc
 
+_real_web_risk = sc._web_risk
+_real_urlhaus = sc._urlhaus
+
 OLD = datetime.utcnow() - timedelta(days=4000)
 
 
@@ -36,6 +39,8 @@ def offline(monkeypatch):
     monkeypatch.setattr(sc, "_tls_info", lambda host: None)
     monkeypatch.setattr(sc, "_virustotal", lambda d: None)
     monkeypatch.setattr(sc, "_urlscan", lambda d: None)
+    monkeypatch.setattr(sc, "_web_risk", lambda target: None)
+    monkeypatch.setattr(sc, "_urlhaus", lambda url, host: None)
     monkeypatch.setattr(sc, "_mail_records", lambda d: {"mx": True, "spf": True, "dmarc": True})
     monkeypatch.setattr(check_api, "_KEY_SALT", uuid.uuid4().hex[:8])
     monkeypatch.setattr(check_api, "ANON_LIMIT", "1000/hour")
@@ -209,3 +214,69 @@ def test_made_up_api_key_gets_the_anonymous_bucket():
     scope = {"type": "http", "headers": [(b"authorization", b"Bearer osig_madeup123")], "client": ("1.2.3.4", 1)}
     key = check._rate_key(Request(scope))
     assert key.endswith("ip:1.2.3.4") and check._limit_for(key) == check.ANON_LIMIT
+
+
+# ── known-bad link lists ─────────────────────────────────────────
+class _Resp:
+    def __init__(self, body, status=200):
+        self.status_code, self._body = status, body
+
+    def json(self):
+        return self._body
+
+
+def test_web_risk_phishing_is_scam(offline, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "GOOGLE_WEB_RISK_API_KEY", "k")
+    sent = {}
+
+    def fake_get(url, params=None, **kw):
+        sent["params"] = params
+        return _Resp({"threat": {"threatTypes": ["SOCIAL_ENGINEERING"], "expireTime": "2030-01-01T00:00:00Z"}})
+    monkeypatch.setattr(sc.httpx, "get", fake_get)
+    monkeypatch.setattr(sc, "_web_risk", _real_web_risk)
+    res = sc.run_check("https://ordinary-looking-site.com/account")
+    assert "web_risk_phishing" in codes(res) and res["verdict"] == "scam"
+    assert ("uri", "https://ordinary-looking-site.com/account") in sent["params"]
+    assert ("threatTypes", "SOCIAL_ENGINEERING") in sent["params"]
+
+
+def test_web_risk_skipped_without_key_and_for_official_brands(offline, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "GOOGLE_WEB_RISK_API_KEY", "")
+    assert _real_web_risk("https://x.com") is None
+    calls = []
+    monkeypatch.setattr(sc, "_web_risk", lambda t: calls.append(t) or [])
+    sc.run_check("https://wave.com")
+    assert calls == []  # official brand domains aren't sent anywhere
+
+
+def test_urlhaus_exact_url_online_is_critical(offline, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "URLHAUS_AUTH_KEY", "k")
+    seen = []
+
+    def fake_post(url, data=None, headers=None, **kw):
+        seen.append((url, data, headers))
+        return _Resp({"query_status": "ok", "url_status": "online", "threat": "malware_download", "tags": ["exe"]})
+    monkeypatch.setattr(sc.httpx, "post", fake_post)
+    monkeypatch.setattr(sc, "_urlhaus", _real_urlhaus)
+    res = sc.run_check("http://files-download.site/invoice.exe")
+    r = next(x for x in res["reasons"] if x["code"] == "urlhaus_listed")
+    assert r["severity"] == "critical" and res["verdict"] == "scam"
+    assert seen[0][0].endswith("/v1/url/") and seen[0][2] == {"Auth-Key": "k"}
+
+
+def test_urlhaus_host_listing_and_misspelled_status(offline, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "URLHAUS_AUTH_KEY", "k")
+
+    def fake_post(url, data=None, **kw):
+        if url.endswith("/v1/url/"):
+            return _Resp({"query_status": "no_results"})
+        return _Resp({"query_staus": "ok", "url_count": 3, "urls": [{"url_status": "offline"}]})
+    monkeypatch.setattr(sc.httpx, "post", fake_post)
+    monkeypatch.setattr(sc, "_urlhaus", _real_urlhaus)
+    res = sc.run_check("https://shady-host.site/")
+    r = next(x for x in res["reasons"] if x["code"] == "urlhaus_host")
+    assert r["severity"] == "medium" and "3" in r["text"]

@@ -247,6 +247,44 @@ def _urlscan(domain: str) -> Optional[int]:
     return int(r.json().get("total", 0))
 
 
+WEB_RISK_THREATS = ("SOCIAL_ENGINEERING", "MALWARE", "UNWANTED_SOFTWARE")
+
+
+def _web_risk(target: str) -> Optional[List[str]]:
+    """Google Web Risk Lookup API: threat types the URL is listed for ([] = not listed)."""
+    from app.core.config import settings
+    if not settings.GOOGLE_WEB_RISK_API_KEY:
+        return None
+    params = [("uri", target), ("key", settings.GOOGLE_WEB_RISK_API_KEY)] + [("threatTypes", t) for t in WEB_RISK_THREATS]
+    r = httpx.get("https://webrisk.googleapis.com/v1/uris:search", params=params, timeout=CHECK_TIMEOUT)
+    if r.status_code != 200:
+        return None
+    return list(((r.json() or {}).get("threat") or {}).get("threatTypes") or [])
+
+
+def _urlhaus(url: Optional[str], host: str) -> Optional[Dict[str, Any]]:
+    """abuse.ch URLhaus: is this exact URL, or this host, listed as distributing malware?"""
+    from app.core.config import settings
+    if not settings.URLHAUS_AUTH_KEY:
+        return None
+    headers = {"Auth-Key": settings.URLHAUS_AUTH_KEY}
+    if url:
+        r = httpx.post("https://urlhaus-api.abuse.ch/v1/url/", data={"url": url}, headers=headers, timeout=CHECK_TIMEOUT)
+        if r.status_code == 200 and r.json().get("query_status") == "ok":
+            d = r.json()
+            return {"listed": "url", "status": d.get("url_status"), "threat": d.get("threat"),
+                    "tags": (d.get("tags") or [])[:5]}
+    r = httpx.post("https://urlhaus-api.abuse.ch/v1/host/", data={"host": host}, headers=headers, timeout=CHECK_TIMEOUT)
+    if r.status_code != 200:
+        return None
+    d = r.json()
+    status = d.get("query_status") or d.get("query_staus")  # their docs' example misspells it
+    if status != "ok" or not int(d.get("url_count") or 0):
+        return {"listed": None}
+    online = sum(1 for u in d.get("urls") or [] if u.get("url_status") == "online")
+    return {"listed": "host", "url_count": int(d.get("url_count") or 0), "online": online}
+
+
 # ---------------------------------------------------------------------------
 # Offline analysis
 # ---------------------------------------------------------------------------
@@ -441,6 +479,8 @@ def check_host(runner: _Runner, host: str, *, url: Optional[str] = None, fetch: 
     f_whois = runner.submit(_wrap, _whois_created, reg) if not official and not is_short else None
     f_vt = runner.submit(_wrap, _virustotal, reg)
     f_us = runner.submit(_wrap, _urlscan, reg)
+    f_wr = runner.submit(_wrap, _web_risk, url or f"http://{host}/") if not official else None
+    f_uh = runner.submit(_wrap, _urlhaus, url, host) if not official else None
 
     dns_res = runner.result(f_dns)
     safe_to_fetch = False
@@ -492,6 +532,26 @@ def check_host(runner: _Runner, host: str, *, url: Optional[str] = None, fetch: 
         facts["urlscan_malicious"] = us
         if us > 0:
             reasons.append(reason("urlscan_malicious", "high", "URLScan.io has seen this site serving malicious pages.", reg))
+    wr = runner.result(f_wr) if f_wr is not None else None
+    if isinstance(wr, list):
+        checked += 1
+        facts["web_risk"] = wr
+        if "SOCIAL_ENGINEERING" in wr:
+            reasons.append(reason("web_risk_phishing", "critical",
+                                  "Google lists this link as phishing (deceptive site).", host))
+        elif wr:
+            reasons.append(reason("web_risk_malware", "critical",
+                                  "Google lists this link as dangerous (malware or unwanted software).", host))
+    uh = runner.result(f_uh) if f_uh is not None else None
+    if isinstance(uh, dict):
+        checked += 1
+        facts["urlhaus"] = uh
+        if uh.get("listed") == "url":
+            reasons.append(reason("urlhaus_listed", "critical" if uh.get("status") == "online" else "high",
+                                  "This exact link is listed by URLhaus as spreading malware.", host))
+        elif uh.get("listed") == "host":
+            reasons.append(reason("urlhaus_host", "high" if uh.get("online") else "medium",
+                                  f"URLhaus has listed {uh['url_count']} malware link(s) on this site.", host))
 
     if f_tls is not None:
         tls = runner.result(f_tls)
@@ -747,8 +807,14 @@ def input_hash(text: str, country: Optional[str]) -> str:
 # Entry point
 # ---------------------------------------------------------------------------
 
+# A trusted list confirming the link is bad settles it, whatever else looks fine
+CONFIRMED = {"web_risk_phishing", "web_risk_malware", "urlhaus_listed", "virustotal_malicious"}
+
+
 def verdict_for(reasons: List[Dict[str, Any]], checked: int) -> Tuple[str, int]:
     score = min(100, sum(SEVERITY_WEIGHT.get(r["severity"], 0) for r in reasons))
+    if any(r["code"] in CONFIRMED for r in reasons):
+        return "scam", max(score, 90)
     if score >= 60:
         return "scam", score
     if score >= 25:
