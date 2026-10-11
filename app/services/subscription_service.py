@@ -17,7 +17,7 @@ The return URL never grants anything.
 """
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
 from sqlalchemy.orm import Session
@@ -70,6 +70,8 @@ def apply_subscription(db: Session, subscription: Mapping[str, Any]) -> Optional
 
     if e.customer_id and not user.yoon_customer_id:
         user.yoon_customer_id = e.customer_id
+    if user.yoon_subscription_id in (None, e.subscription_id) or e.entitled:
+        user.yoon_cancel_at_period_end = subscription.get("cancel_at_period_end") is True
 
     if e.entitled:
         if e.plan not in PAID_PLANS:
@@ -271,7 +273,12 @@ def subscribe(db: Session, user: User, plan: str, period: str, country: str) -> 
     if not info["is_active"] or not info["self_serve"]:
         raise BillingError(400, "This plan can't be bought online. Contact us to get it.")
     country = country.upper()
-    currency = "XOF" if country in billing_service.XOF_COUNTRIES else "USD"
+    currency = billing_service.currency_for(country)
+    if not user.country:
+        user.country = country
+    elif user.country != country and user.yoon_customer_id:
+        user.country = country
+        update_customer_country(user)
     price_id = price_for(plan, period, currency)
     return_url = mail_service.link("/billing?subscribed=1")
     customer_id = ensure_customer(db, user, country)
@@ -309,6 +316,87 @@ def subscribe(db: Session, user: User, plan: str, period: str, country: str) -> 
     return {"scheduled": True}  # cheaper per day: Yoon applies it at the period end
 
 
+def update_customer_country(user: User) -> None:
+    """Best effort: the Yoon customer's country follows the account's (never blocks a profile save)."""
+    from yoonpay.generated import UpdateCustomerRequest
+    try:
+        yoon = _yoon()
+        yoon.call(lambda: yoon.customers().update_customer(
+            user.yoon_customer_id, f"osig-customer-country-{user.id}-{user.country}",
+            UpdateCustomerRequest(country=user.country)))
+    except Exception as e:
+        logger.info("Couldn't update the Yoon customer's country for user %s: %s", user.id, type(e).__name__)
+
+
+def _as_event_dict(model) -> dict:
+    """A generated Subscription model as the dict an event would carry (ISO dates)."""
+    data = model.to_dict() if hasattr(model, "to_dict") else dict(model)
+    for key in ("updated_at", "current_period_end", "current_period_start", "created_at", "canceled_at"):
+        if isinstance(data.get(key), datetime):
+            data[key] = data[key].isoformat()
+    return data
+
+
+def _current_subscription(user: User):
+    if not user.yoon_subscription_id:
+        raise BillingError(404, "You don't have a subscription to change.")
+    yoon = _yoon()
+    return yoon, _call(lambda: yoon.subscriptions().get_subscription(user.yoon_subscription_id), "get subscription")
+
+
+def cancel(db: Session, user: User, at_period_end: bool = True) -> Optional[User]:
+    """Stop renewing (default) or end now. No refund; Yoon also sends subscription.canceled/changed."""
+    from yoonpay.generated import CancelSubscriptionRequest
+    yoon, sub = _current_subscription(user)
+    key = f"osig-cancel-{sub.id}-{'end' if at_period_end else 'now'}-{datetime.utcnow():%Y%m%d%H}"
+    out = _call(lambda: yoon.subscriptions().cancel_subscription(
+        sub.id, key, CancelSubscriptionRequest(at_period_end=at_period_end)), "cancel")
+    return apply_subscription(db, _as_event_dict(out))
+
+
+def resume(db: Session, user: User) -> Optional[User]:
+    yoon, sub = _current_subscription(user)
+    key = f"osig-resume-{sub.id}-{datetime.utcnow():%Y%m%d%H}"
+    out = _call(lambda: yoon.subscriptions().resume_subscription(sub.id, key), "resume")
+    return apply_subscription(db, _as_event_dict(out))
+
+
+def admin_grant(db: Session, user: User, plan: str, days: Optional[int]) -> Optional[User]:
+    """Operator grant through a Yoon comp: `days` from now, or open-ended. "free" ends the subscription now."""
+    from app.core.config import settings
+    from app.services.yoon_migration import YoonAdmin
+    if plan == "free":
+        if user.yoon_subscription_id:
+            return cancel(db, user, at_period_end=False)
+        user.plan, user.plan_expires_at, user.plan_source = UserPlan.FREE, None, None
+        db.commit()
+        return user
+    if not (settings.YOON_ADMIN_TOKEN and settings.YOON_APPLICATION_ID):
+        raise BillingError(503, "Granting plans needs YOON_ADMIN_TOKEN and YOON_APPLICATION_ID on the server.")
+    from app.services import billing_service
+    country = user.country or "SN"
+    price_id = price_for(plan, "month", billing_service.currency_for(country))
+    customer_id = ensure_customer(db, user, country)
+    admin = YoonAdmin(settings.YOON_API_URL, settings.YOON_API_KEY, settings.YOON_ADMIN_TOKEN,
+                      settings.YOON_APPLICATION_ID)
+    body = {"price": price_id, "note": "granted from the OSIG admin console"}
+    if days is None:
+        body["open"] = True
+    else:
+        body["until"] = (datetime.utcnow() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    key = f"osig-grant-{user.id}-{plan}-{days or 'open'}-{datetime.utcnow():%Y%m%d%H%M}"
+    # Still entitled on a subscription: comp it (stacks like a renewal); otherwise a new comped subscription
+    target = (f"subscriptions/{user.yoon_subscription_id}" if user.yoon_subscription_id and user.plan != UserPlan.FREE
+              else f"customers/{customer_id}")
+    try:
+        sub = admin.post_comp(target, body, key)
+    except RuntimeError as e:
+        logger.warning("Yoon refused grant for user %s: %s", user.id, e)
+        raise BillingError(409, "Yoon refused the grant (an end date before the current paid period can't be "
+                                "granted). Pick a later date or no end date.")
+    return apply_subscription(db, sub)
+
+
 def reconcile_user(db: Session, user: User) -> Optional[User]:
     """After an outage on our side: re-read the customer's subscriptions and apply the latest one."""
     if not user.yoon_customer_id:
@@ -316,12 +404,9 @@ def reconcile_user(db: Session, user: User) -> Optional[User]:
     yoon = _yoon()
     page = _call(lambda: yoon.subscriptions().list_subscriptions(customer=user.yoon_customer_id, limit=20),
                  "list subscriptions")
-    subs = [s.to_dict() for s in page.data]
+    subs = [_as_event_dict(s) for s in page.data]
     if not subs:
         return user
     entitled = [s for s in subs if s.get("entitled")]
     pick = max(entitled or subs, key=lambda s: str(s.get("updated_at") or ""))
-    for key in ("updated_at", "current_period_end", "current_period_start", "created_at"):
-        if isinstance(pick.get(key), datetime):
-            pick[key] = pick[key].isoformat()
     return apply_subscription(db, pick)

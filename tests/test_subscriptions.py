@@ -149,10 +149,3 @@ def test_informational_events_never_grant(client, db, member):
     _send(client, "subscription.created", _sub(member, status="incomplete"))
     _send(client, "invoice.created", {"id": "in_2", "object": "invoice", "customer": _cus(member), "status": "open"})
     assert _user(db, member).plan == UserPlan.FREE
-
-
-def test_old_beat_tasks_leave_yoon_subscriptions_alone(client, db, member):
-    from app.services import billing_service
-    _send(client, "subscription.activated", _sub(member, end=datetime.utcnow() - timedelta(days=10)))
-    billing_service.expire_plans(db)
-    assert _user(db, member).plan == UserPlan.PRO  # Yoon sends subscription.expired itself

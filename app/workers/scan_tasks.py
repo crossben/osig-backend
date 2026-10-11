@@ -374,38 +374,6 @@ def purge_expired_data_task():
         db.close()
 
 
-@celery_app.task(name="osig.expire_plans")
-def expire_plans_task():
-    from app.services.billing_service import expire_plans
-    db = SessionLocal()
-    try:
-        return expire_plans(db)
-    finally:
-        db.close()
-
-
-@celery_app.task(name="osig.billing_reminders")
-def billing_reminders_task():
-    from app.services.billing_service import send_renewal_reminders
-    db = SessionLocal()
-    try:
-        return send_renewal_reminders(db)
-    finally:
-        db.close()
-
-
-@celery_app.task(name="osig.reconcile_payments")
-def reconcile_payments_task():
-    from app.services.billing_service import enabled, reconcile_pending
-    if not enabled():
-        return 0
-    db = SessionLocal()
-    try:
-        return reconcile_pending(db)
-    finally:
-        db.close()
-
-
 @celery_app.task(name="osig.weekly_digest")
 def weekly_digest_task():
     from app.services.footprint_service import send_weekly_digests

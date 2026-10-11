@@ -58,6 +58,8 @@ def my_billing(db: Session = Depends(get_db), user: User = Depends(get_session_u
         "plan": user.plan.value, "plan_name": info["name"], "expires_at": user.plan_expires_at,
         "source": user.plan_source, "pending_plan": user.pending_plan, "pending_plan_days": user.pending_plan_days,
         "subscription": bool(user.yoon_subscription_id),
+        "cancel_at_period_end": bool(user.yoon_cancel_at_period_end),
+        "country": user.country,
         "grace_days": settings.BILLING_GRACE_DAYS, "limits": info["limits"],
         "usage": {
             "scans_today": used, "daily_scans": daily,
@@ -95,6 +97,38 @@ def subscribe(body: CheckoutIn, request: Request, db: Session = Depends(get_db),
     return out
 
 
+class CancelIn(BaseModel):
+    at_period_end: bool = True
+
+
+@router.post("/subscription/cancel")
+def cancel_subscription(body: CancelIn, request: Request, db: Session = Depends(get_db),
+                        user: User = Depends(get_session_user)):
+    """Stop renewing: the plan keeps running until the end of the paid period (no refund)."""
+    from app.services import subscription_service
+    try:
+        subscription_service.cancel(db, user, at_period_end=body.at_period_end)
+    except subscription_service.BillingError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    audit_service.record(db, "subscription_canceled", request=request, user_id=user.id,
+                         target="period_end" if body.at_period_end else "now")
+    return {"cancel_at_period_end": user.yoon_cancel_at_period_end, "plan": user.plan.value,
+            "expires_at": user.plan_expires_at}
+
+
+@router.post("/subscription/resume")
+def resume_subscription(request: Request, db: Session = Depends(get_db), user: User = Depends(get_session_user)):
+    """Undo a cancellation that hasn't taken effect yet."""
+    from app.services import subscription_service
+    try:
+        subscription_service.resume(db, user)
+    except subscription_service.BillingError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    audit_service.record(db, "subscription_resumed", request=request, user_id=user.id)
+    return {"cancel_at_period_end": user.yoon_cancel_at_period_end, "plan": user.plan.value,
+            "expires_at": user.plan_expires_at}
+
+
 @router.post("/subscription/sync")
 @limiter.limit("20/minute")
 def sync_subscription(request: Request, db: Session = Depends(get_db), user: User = Depends(get_session_user)):
@@ -107,23 +141,6 @@ def sync_subscription(request: Request, db: Session = Depends(get_db), user: Use
     db.refresh(user)
     return {"plan": user.plan.value, "expires_at": user.plan_expires_at, "source": user.plan_source,
             "pending_plan": user.pending_plan}
-
-
-@router.post("/checkout", status_code=status.HTTP_201_CREATED)
-@limiter.limit(settings.RATE_LIMIT_AUTH)
-def start_checkout(body: CheckoutIn, request: Request, db: Session = Depends(get_db),
-                   user: User = Depends(get_verified_user)):
-    """Retired: one-off payments are read-only while pending ones settle. Use /billing/subscribe."""
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="This payment flow was replaced. Refresh the page.")
-
-
-@router.get("/payments/{reference}")
-def payment_status(reference: str, db: Session = Depends(get_db), user: User = Depends(get_session_user)):
-    payment = db.query(Payment).filter(Payment.reference == reference, Payment.user_id == user.id).first()
-    if not payment:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
-    payment = billing_service.refresh_from_yoon(db, payment)
-    return _payment_out(payment)
 
 
 @router.post("/yoon/webhook")
@@ -144,18 +161,6 @@ async def yoon_webhook(request: Request, db: Session = Depends(get_db)):
     from app.services import subscription_service
     if subscription_service.handle_event(db, event.type, obj):  # Yoon 0.3.0 subscriptions
         audit_service.record(db, f"billing_{event.type.replace('.', '_')}", target=str(obj.get("id")))
-    elif event.type in ("payment.succeeded", "payment.failed", "payment.expired"):  # one-off payments (read-only path)
-        payment = db.query(Payment).filter(
-            (Payment.yoon_payment_id == obj.get("id")) | (Payment.reference == obj.get("reference"))).first()
-        if payment:
-            if not payment.yoon_payment_id:
-                payment.yoon_payment_id = obj.get("id")
-            billing_service.settle(db, payment.id, event.type.split(".", 1)[1],
-                                   obj.get("amount"), obj.get("currency"), obj.get("method"))
-            audit_service.record(db, f"billing_{event.type.replace('.', '_')}", user_id=payment.user_id,
-                                 target=payment.reference)
-        else:
-            logger.warning(f"Yoon event {event.id} for unknown payment {obj.get('id')}")
     # Remember the id only after handling succeeded: if we raised, Yoon retries
     try:
         db.add(YoonEvent(id=event.id, type=event.type, received_at=datetime.utcnow()))
@@ -182,11 +187,17 @@ class PlanPatch(BaseModel):
 @router.post("/admin/users/{user_id}/grant")
 def admin_grant(user_id: str, body: GrantIn, request: Request, db: Session = Depends(get_db),
                 admin: User = Depends(get_admin_user)):
-    """Give a plan without payment (Enterprise deals, comps). No days = no end date."""
+    """Give a plan without payment through a Yoon comp (Enterprise deals, support gestures).
+    No days = no end date; "free" cancels the subscription now."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    billing_service.grant(db, user, body.plan, body.days)
+    from app.services import subscription_service
+    try:
+        subscription_service.admin_grant(db, user, body.plan, body.days)
+    except subscription_service.BillingError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    db.refresh(user)
     audit_service.record(db, "admin_plan_granted", request=request, user_id=admin.id,
                          target=f"{user.id} {body.plan} {body.days or 'no end'}")
     return {"plan": user.plan.value, "expires_at": user.plan_expires_at, "source": user.plan_source}

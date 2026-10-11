@@ -42,6 +42,7 @@ class UserResponse(UserBase):
     notify_email: bool = True
     webhook_url: Optional[str] = None
     language: str = "en"
+    country: Optional[str] = None
     digest_enabled: bool = True
     exposure_score: Optional[int] = None
     id: UUID
@@ -64,6 +65,7 @@ class UserUpdate(BaseModel):
     notify_email: Optional[bool] = None
     webhook_url: Optional[str] = Field(None, max_length=500)
     language: Optional[str] = Field(None, pattern="^(en|fr)$")
+    country: Optional[str] = Field(None, pattern="^[A-Z]{2}$")
     digest_enabled: Optional[bool] = None
 
 

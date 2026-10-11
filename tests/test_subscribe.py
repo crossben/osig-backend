@@ -53,6 +53,9 @@ class FakeCustomers:
     def list_customers(self, external_id=None, **kw):
         return Obj(data=[Obj(id=self.fake.cust_ids[external_id])])
 
+    def update_customer(self, cid, key, req):
+        return self.fake.update_customer(cid, key, req)
+
 
 class FakeSubscriptions:
     def __init__(self, fake):
@@ -85,11 +88,41 @@ class FakeSubscriptions:
     def list_subscriptions(self, customer=None, **kw):
         return Obj(data=self.fake.listed)
 
+    def _state(self, sid, **changes):
+        sub = self.fake.subs[sid]
+        uid = next(k for k, v in self.fake.cust_ids.items())
+        sub.__dict__.update(object="subscription", status="active", entitled=True, comp=False,
+                            customer=Obj(id=self.fake.cust_ids[uid], external_id=uid),
+                            current_period_end="2031-01-01T00:00:00Z", updated_at=self.fake.tick(),
+                            pending_change=None, features={}, cancel_at_period_end=False)
+        sub.price = Obj(id=sub.price.id, plan=Obj(slug="pro"))
+        sub.__dict__.update(changes)
+        return sub
+
+    def cancel_subscription(self, sid, key, req):
+        self.fake.calls.append(("cancel", key, req.at_period_end))
+        if req.at_period_end:
+            return self._state(sid, cancel_at_period_end=True)
+        return self._state(sid, status="canceled", entitled=False)
+
+    def resume_subscription(self, sid, key):
+        self.fake.calls.append(("resume", key))
+        return self._state(sid, cancel_at_period_end=False)
+
 
 class FakeYoon:
     def __init__(self):
         self.calls, self.subs, self.cust_ids, self.listed = [], {}, {}, []
+        self.clock = 0
         self.first_url = "http://yoon.test/checkout/first"
+
+    def tick(self):
+        self.clock += 1
+        return f"2030-12-01T00:00:{self.clock:02d}Z"
+
+    def update_customer(self, cid, key, req):
+        self.calls.append(("update_customer", cid, req.country))
+        return Obj(id=cid)
 
     def call(self, fn):
         return fn()
@@ -207,10 +240,10 @@ def test_sync_applies_latest_entitled_subscription(client, db, yoon, buyer):
     assert _user(db, uid).plan_expires_at.year == 2031
 
 
-def test_old_checkout_is_retired_and_needs_verified_email(client, yoon, buyer, unverified_user):
+def test_old_checkout_is_gone_and_buying_needs_verified_email(client, yoon, buyer, unverified_user):
     headers, _ = buyer
     assert client.post("/api/v1/billing/checkout", headers=headers,
-                       json={"plan": "pro", "period": "month", "country": "SN"}).status_code == 410
+                       json={"plan": "pro", "period": "month", "country": "SN"}).status_code == 404
     uh, _ = unverified_user
     assert _buy(client, uh).status_code == 403
 
@@ -223,3 +256,70 @@ def test_yoon_errors_become_readable_messages(client, yoon, buyer, monkeypatch):
     monkeypatch.setattr(FakeSubscriptions, "create_subscription", refuse)
     r = _buy(client, headers)
     assert r.status_code == 502 and "country" in r.json()["detail"]
+
+
+def _active(client, db, yoon, headers, uid):
+    _buy(client, headers)
+    sid = next(iter(yoon.subs))
+    from app.services.subscription_service import apply_subscription
+    sub = FakeSubscriptions(yoon)._state(sid)
+    apply_subscription(db, sub.to_dict())
+    return sid
+
+
+def test_cancel_at_period_end_then_resume(client, db, yoon, buyer):
+    headers, uid = buyer
+    _active(client, db, yoon, headers, uid)
+    r = client.post("/api/v1/billing/subscription/cancel", headers=headers, json={})
+    assert r.status_code == 200 and r.json()["cancel_at_period_end"] is True and r.json()["plan"] == "pro"
+    assert client.get("/api/v1/billing/me", headers=headers).json()["cancel_at_period_end"] is True
+    r = client.post("/api/v1/billing/subscription/resume", headers=headers)
+    assert r.json()["cancel_at_period_end"] is False and _user(db, uid).plan == UserPlan.PRO
+
+
+def test_cancel_now_drops_to_free(client, db, yoon, buyer):
+    headers, uid = buyer
+    _active(client, db, yoon, headers, uid)
+    r = client.post("/api/v1/billing/subscription/cancel", headers=headers, json={"at_period_end": False})
+    assert r.json()["plan"] == "free" and _user(db, uid).plan == UserPlan.FREE
+
+
+def test_cancel_without_subscription_is_404(client, yoon, buyer):
+    headers, _ = buyer
+    assert client.post("/api/v1/billing/subscription/cancel", headers=headers, json={}).status_code == 404
+
+
+def test_country_is_remembered_and_synced_to_yoon(client, db, yoon, buyer):
+    headers, uid = buyer
+    _buy(client, headers, country="CI")
+    assert _user(db, uid).country == "CI"
+    r = client.patch("/api/v1/auth/me", headers=headers, json={"country": "SN"})
+    assert r.status_code == 200 and r.json()["country"] == "SN"
+    assert ("update_customer", yoon.cust_ids[uid], "SN") in yoon.calls
+    assert client.patch("/api/v1/auth/me", headers=headers, json={"country": "senegal"}).status_code == 422
+
+
+def test_admin_grant_goes_through_a_yoon_comp(client, db, yoon, buyer, user, monkeypatch):
+    from app.services import yoon_migration
+    admin_headers, admin = user
+    db.query(User).filter(User.id == admin["user"]["id"]).update({"is_superuser": True})
+    db.commit()
+    _, uid = buyer
+    monkeypatch.setattr(settings, "YOON_ADMIN_TOKEN", "t" * 40)
+    monkeypatch.setattr(settings, "YOON_APPLICATION_ID", "app-1")
+    sent = []
+
+    def post_comp(self, target, body, key):
+        sent.append((target, body, key))
+        return {"id": "sub_comp", "object": "subscription", "status": "active", "comp": True,
+                "customer": {"id": yoon.cust_ids[uid], "external_id": uid},
+                "price": {"id": body["price"], "plan": {"slug": "pro"}}, "current_period_end": None,
+                "updated_at": "2030-01-01T00:00:00Z", "cancel_at_period_end": False, "features": {}}
+    monkeypatch.setattr(yoon_migration.YoonAdmin, "post_comp", post_comp)
+    r = client.post(f"/api/v1/billing/admin/users/{uid}/grant", headers=admin_headers, json={"plan": "pro"})
+    assert r.status_code == 200 and r.json()["source"] == "comp" and r.json()["expires_at"] is None
+    target, body, _ = sent[0]
+    assert target.startswith("customers/") and body["open"] is True and body["price"] == "price_pro_m"
+    client.post(f"/api/v1/billing/admin/users/{uid}/grant", headers=admin_headers, json={"plan": "pro", "days": 30})
+    target, body, _ = sent[1]
+    assert target == "subscriptions/sub_comp" and "until" in body

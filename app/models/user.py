@@ -63,6 +63,8 @@ class User(Base):
     yoon_customer_id = Column(String(64), nullable=True, unique=True, index=True)
     yoon_subscription_id = Column(String(64), nullable=True, index=True)
     yoon_subscription_updated_at = Column(DateTime, nullable=True)  # ignore older (out-of-order) events
+    yoon_cancel_at_period_end = Column(Boolean, default=False, server_default="false", nullable=False)
+    country = Column(String(2), nullable=True)  # ISO 3166 alpha-2; billing currency and Yoon customer
     # Personal protection
     digest_enabled = Column(Boolean, default=True, server_default="true", nullable=False)  # weekly email
     exposure_score = Column(Integer, nullable=True)  # 0-100, higher = safer; null until computed

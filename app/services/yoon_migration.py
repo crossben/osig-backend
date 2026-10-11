@@ -117,6 +117,12 @@ class YoonAdmin:
             return found["data"][0]["id"]
         return self._check(resp, "create customer")["id"]
 
+    def post_comp(self, target: str, body: Dict[str, Any], key: str) -> dict:
+        """target: "customers/cus_…" or "subscriptions/sub_…"."""
+        resp = self.admin.post(f"/admin/v1/applications/{self.app}/{target}/comp",
+                               headers={"Idempotency-Key": key}, json=body)
+        return self._check(resp, "comp")
+
     def comp(self, customer_id: str, m: UserMigration) -> dict:
         body: Dict[str, Any] = {"price": m.price_id, "note": "migration from OSIG one-off billing"}
         if m.until is None:
