@@ -79,3 +79,13 @@ def safe_tls_connect(host: str, port: int = 443, timeout: float = 6.0) -> socket
     """TCP connection to a vetted public address of host (caller wraps it in TLS)."""
     ip = public_addresses(host, port)[0]
     return socket.create_connection((ip, port), timeout=timeout)
+
+
+def safe_post_json(url: str, payload: dict, timeout: float = 10.0) -> httpx.Response:
+    """POST JSON to a user-supplied https URL (webhooks). No redirects are followed."""
+    if urlparse(url).scheme != "https":
+        raise UnsafeTargetError("Webhooks must use https")
+    pinned_url, host, _ip = _pinned(url)
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        return client.post(pinned_url, json=payload, headers={"Host": urlparse(url).netloc},
+                           extensions={"sni_hostname": host})

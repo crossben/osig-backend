@@ -3,13 +3,14 @@ OSIG Backend - Scan Service
 
 Business logic for scan management.
 """
+from uuid import UUID
 from typing import Optional, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from fastapi import HTTPException, status
 
-from app.models.scan import Scan, ScanStatus, TargetType, ScanType
+from app.models.scan import Scan, ScanStatus, ScanType
 from app.models.user import User, UserPlan
 from app.schemas.scan import CreateScanRequest, ScanQueryParams
 from app.core.config import settings
@@ -19,14 +20,10 @@ class ScanService:
     """Service for scan operations."""
     
     @staticmethod
-    def get_daily_scan_limit(user: User) -> int:
-        """Get daily scan limit based on user plan."""
-        limits = {
-            UserPlan.FREE: settings.FREE_DAILY_SCANS,
-            UserPlan.PRO: settings.PRO_DAILY_SCANS,
-            UserPlan.ENTERPRISE: settings.ENTERPRISE_DAILY_SCANS,
-        }
-        return limits.get(user.plan, settings.FREE_DAILY_SCANS)
+    def get_daily_scan_limit(db: Session, user: User) -> int:
+        """Daily scan allowance of the user's plan (plans table)."""
+        from app.services.plan_limits import limit
+        return int(limit(db, user, "daily_scans") or 0)
     
     @staticmethod
     def get_user_scans_today(db: Session, user_id: str) -> int:
@@ -50,7 +47,7 @@ class ScanService:
         Returns:
             Tuple of (has_quota, used_today, daily_limit)
         """
-        daily_limit = ScanService.get_daily_scan_limit(user)
+        daily_limit = ScanService.get_daily_scan_limit(db, user)
         used_today = ScanService.get_user_scans_today(db, str(user.id))
         
         has_quota = used_today < daily_limit
@@ -74,7 +71,10 @@ class ScanService:
         Raises:
             HTTPException: If user has exceeded quota
         """
-        # Check quota
+        # Plan: deep scans and the daily allowance
+        if scan_data.scan_type == ScanType.DEEP:
+            from app.services.plan_limits import require
+            require(db, user, "deep_scans", "Deep scans aren't included in your plan.")
         has_quota, used_today, daily_limit = ScanService.check_scan_quota(db, user)
         
         if not has_quota:
@@ -143,14 +143,27 @@ class ScanService:
         return scans, total
     
     @staticmethod
-    def get_scan(db: Session, scan_id: str, user_id: str) -> Optional[Scan]:
-        """Get scan by ID (user must own the scan)."""
-        return db.query(Scan).filter(
-            and_(
-                Scan.id == scan_id,
-                Scan.user_id == user_id
-            )
-        ).first()
+    def get_scan(db: Session, scan_id: str, user_id: str, allow_shared: bool = False) -> Optional[Scan]:
+        """Get scan by ID. The user must own it, or with allow_shared (read-only
+        views) be a member of an investigation the scan belongs to."""
+        try:
+            UUID(str(scan_id))
+        except ValueError:
+            return None
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            return None
+        if str(scan.user_id) == str(user_id):
+            return scan
+        if allow_shared and scan.investigation_id:
+            from app.models.investigation import Investigation
+            from app.models.platform import InvestigationMember
+            inv = db.query(Investigation).filter(Investigation.id == scan.investigation_id).first()
+            if inv and (str(inv.user_id) == str(user_id) or db.query(InvestigationMember).filter(
+                    InvestigationMember.investigation_id == inv.id,
+                    InvestigationMember.user_id == user_id).first()):
+                return scan
+        return None
     
     @staticmethod
     def cancel_scan(db: Session, scan: Scan) -> Scan:

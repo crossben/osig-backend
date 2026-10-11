@@ -104,7 +104,8 @@ class AuthService:
         Returns:
             JWT access token
         """
-        return create_access_token(data={"sub": str(user.id)})
+        # "sv" ties the token to the user's current session version (revocation)
+        return create_access_token(data={"sub": str(user.id), "sv": user.session_version or 0})
 
 
 # Service instance

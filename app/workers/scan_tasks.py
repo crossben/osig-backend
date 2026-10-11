@@ -250,6 +250,18 @@ def run_background_modules(scan_id: str):
     finally:
         db.close()
     _run_modules(scan_id, pairs)
+    _alert_watch_owner(scan_id)
+
+
+def _alert_watch_owner(scan_id: str):
+    from app.services.notify_service import watch_run_finished
+    db = SessionLocal()
+    try:
+        watch_run_finished(db, scan_id)
+    except Exception as e:
+        logger.error(f"Watch alert for scan {scan_id} failed: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 def dispatch_scan(scan_id: str):
@@ -305,10 +317,84 @@ def run_due_watches():
                 w.last_run_at = now
                 w.next_run_at = now + timedelta(hours=w.interval_hours)
                 started += 1
-            except HTTPException as e:  # e.g. daily quota used up: try again later
-                logger.info(f"Watch {w.id} postponed: {e.detail}")
-                w.next_run_at = now + timedelta(hours=1)
+            except HTTPException as e:
+                if e.status_code == 402:  # no longer in the plan (e.g. deep scan after a downgrade)
+                    logger.info(f"Watch {w.id} paused: {e.detail}")
+                    w.active = False
+                else:  # e.g. daily quota used up: try again later
+                    logger.info(f"Watch {w.id} postponed: {e.detail}")
+                    w.next_run_at = now + timedelta(hours=1)
         db.commit()
     finally:
         db.close()
     return started
+
+
+def purge_expired_data(db) -> int:
+    """Delete scans (with results and reports) older than the retention window:
+    the user's own setting, capped by the server-wide DATA_RETENTION_DAYS."""
+    from datetime import timedelta
+    from app.core.config import settings
+    from app.models.platform import MailOutbox
+    from app.models.user import User
+
+    now = datetime.utcnow()
+    deleted = 0
+    for user in db.query(User).all():
+        from app.services.plan_limits import limit
+        windows = [d for d in (user.retention_days, settings.DATA_RETENTION_DAYS,
+                               limit(db, user, "max_retention_days")) if d and d > 0]
+        if not windows:
+            continue
+        cutoff = now - timedelta(days=min(windows))
+        for scan in db.query(Scan).filter(Scan.user_id == user.id, Scan.created_at < cutoff).all():
+            for report in scan.reports:
+                if report.file_path and os.path.exists(report.file_path):
+                    os.remove(report.file_path)
+            db.delete(scan)
+            deleted += 1
+    # Sent mail holds one-time links: keep 30 days for troubleshooting only
+    db.query(MailOutbox).filter(MailOutbox.created_at < now - timedelta(days=30)).delete(synchronize_session=False)
+    db.commit()
+    return deleted
+
+
+@celery_app.task(name="osig.purge_expired_data")
+def purge_expired_data_task():
+    db = SessionLocal()
+    try:
+        return purge_expired_data(db)
+    finally:
+        db.close()
+
+
+@celery_app.task(name="osig.expire_plans")
+def expire_plans_task():
+    from app.services.billing_service import expire_plans
+    db = SessionLocal()
+    try:
+        return expire_plans(db)
+    finally:
+        db.close()
+
+
+@celery_app.task(name="osig.billing_reminders")
+def billing_reminders_task():
+    from app.services.billing_service import send_renewal_reminders
+    db = SessionLocal()
+    try:
+        return send_renewal_reminders(db)
+    finally:
+        db.close()
+
+
+@celery_app.task(name="osig.reconcile_payments")
+def reconcile_payments_task():
+    from app.services.billing_service import enabled, reconcile_pending
+    if not enabled():
+        return 0
+    db = SessionLocal()
+    try:
+        return reconcile_pending(db)
+    finally:
+        db.close()

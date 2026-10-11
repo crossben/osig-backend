@@ -54,14 +54,21 @@ def password_fingerprint(hashed_password: str) -> str:
     return hashlib.sha256(hashed_password.encode()).hexdigest()[:16]
 
 
-def create_refresh_token(user_id: str, hashed_password: str) -> str:
+def create_purpose_token(purpose: str, sub: str, minutes: int, **claims) -> str:
+    """Short-lived signed token for one job (verify email, reset password, 2FA step)."""
+    payload = {"sub": sub, "type": purpose, "exp": datetime.utcnow() + timedelta(minutes=minutes), **claims}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def create_refresh_token(user_id: str, hashed_password: str, session_version: int = 0) -> str:
     """
     Long-lived token used only to obtain new access tokens.
     Bound to the password fingerprint, so a password change revokes every
     outstanding refresh token without needing a token table.
     """
     expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    payload = {"sub": user_id, "type": "refresh", "pwf": password_fingerprint(hashed_password), "exp": expire}
+    payload = {"sub": user_id, "type": "refresh", "pwf": password_fingerprint(hashed_password),
+               "sv": session_version, "exp": expire}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 

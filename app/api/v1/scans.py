@@ -10,7 +10,7 @@ from math import ceil
 
 from app.services.graph_service import build_entity_graph
 from app.services.risk_service import assess
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, get_verified_user
 from app.schemas.scan import (
     CreateScanRequest,
     ScanResponse,
@@ -33,7 +33,7 @@ def create_scan(
     request: Request,
     scan_data: CreateScanRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_verified_user)
 ):
     """
     Create a new OSINT scan.
@@ -123,7 +123,7 @@ def get_scan(
     
     User must own the scan.
     """
-    scan = scan_service.get_scan(db, scan_id, str(current_user.id))
+    scan = scan_service.get_scan(db, scan_id, str(current_user.id), allow_shared=True)
     
     if not scan:
         raise HTTPException(
@@ -146,7 +146,7 @@ def get_scan_details(
     from app.models.scan import ScanModule
     from app.models.result import Result
 
-    scan = scan_service.get_scan(db, scan_id, str(current_user.id))
+    scan = scan_service.get_scan(db, scan_id, str(current_user.id), allow_shared=True)
     
     if not scan:
         raise HTTPException(
@@ -234,7 +234,7 @@ def get_scan_graph(
     """
     from app.models.result import Result
 
-    scan = scan_service.get_scan(db, scan_id, str(current_user.id))
+    scan = scan_service.get_scan(db, scan_id, str(current_user.id), allow_shared=True)
     if not scan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
 

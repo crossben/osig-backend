@@ -8,6 +8,7 @@ os.environ.setdefault("TEST_DATABASE_URL", "postgresql://osig:osig_dev_pass@loca
 os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 os.environ["RATE_LIMIT_AUTH"] = "1000/minute"
 os.environ["RATE_LIMIT_SCANS"] = "1000/minute"
+os.environ["RATE_LIMIT_EMAIL"] = "1000/minute"
 os.environ["SCAN_EXECUTOR"] = "thread"
 
 import uuid  # noqa: E402
@@ -56,5 +57,21 @@ def user(client):
         "email": f"user{tag}@gmail.com", "username": f"user{tag}", "password": "Passw0rd!x",
     })
     assert r.status_code == 201, r.text
+    body = r.json()
+    from app.models.user import User
+    session = SessionLocal()
+    # Enterprise so feature tests aren't blocked by plan limits (tests/test_billing.py covers those)
+    session.query(User).filter(User.id == body["user"]["id"]).update({"email_verified": True, "plan": "ENTERPRISE"})
+    session.commit()
+    session.close()
+    return {"Authorization": f"Bearer {body['access_token']}"}, body
+
+
+@pytest.fixture
+def unverified_user(client):
+    tag = uuid.uuid4().hex[:8]
+    r = client.post("/api/v1/auth/register", json={
+        "email": f"unv{tag}@gmail.com", "username": f"unv{tag}", "password": "Passw0rd!x",
+    })
     body = r.json()
     return {"Authorization": f"Bearer {body['access_token']}"}, body

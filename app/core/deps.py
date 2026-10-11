@@ -52,28 +52,42 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     
-    # Decode token
     token = credentials.credentials
+
+    # Personal API keys (scripts, CLI) are opaque "osig_..." strings
+    if token.startswith("osig_"):
+        from datetime import datetime
+        from app.core.crypto import sha256
+        from app.models.platform import ApiKey
+        key = db.query(ApiKey).filter(ApiKey.key_hash == sha256(token), ApiKey.revoked.is_(False)).first()
+        if not key or not key.user or not key.user.is_active:
+            raise credentials_exception
+        key.last_used_at = datetime.utcnow()
+        db.commit()
+        key.user.via_api_key = True  # transient: key holders can't manage keys or admin
+        return key.user
+
     payload = decode_token(token, "access")  # refresh tokens are rejected here
-    
     if payload is None:
         raise credentials_exception
-    
+
     user_id: Optional[str] = payload.get("sub")
     if user_id is None:
         raise credentials_exception
-    
-    # Get user from database
+
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception
-    
+    # Revoked sessions: password changed, signed out everywhere, 2FA changed
+    if payload.get("sv", 0) != (user.session_version or 0):
+        raise credentials_exception
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user"
         )
-    
+
     return user
 
 
@@ -98,3 +112,24 @@ def get_current_active_superuser(
             detail="Not enough permissions"
         )
     return current_user
+
+
+def get_verified_user(user: User = Depends(get_current_user)) -> User:
+    """For actions that need a confirmed email (running scans, sharing)."""
+    if not user.email_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Confirm your email address first. Check your inbox for the link.")
+    return user
+
+
+def get_session_user(user: User = Depends(get_current_user)) -> User:
+    """Signed in interactively (not with an API key)."""
+    if getattr(user, "via_api_key", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="API keys can't do this; sign in instead")
+    return user
+
+
+def get_admin_user(user: User = Depends(get_session_user)) -> User:
+    if not user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admins only")
+    return user

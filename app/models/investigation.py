@@ -30,6 +30,8 @@ class Investigation(Base):
     scans = relationship("Scan", back_populates="investigation")
     pins = relationship("InvestigationPin", back_populates="investigation", cascade="all, delete-orphan",
                         order_by="InvestigationPin.created_at")
+    members = relationship("InvestigationMember", back_populates="investigation", cascade="all, delete-orphan")
+    user = relationship("User")
 
 
 class InvestigationPin(Base):

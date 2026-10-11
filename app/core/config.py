@@ -40,6 +40,18 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:3000/api/v1/auth/google/callback"
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Outgoing email (verification, password reset, watch alerts).
+    # Without SMTP_HOST, emails are only recorded in the mail_outbox table.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "OSIG <no-reply@localhost>"
+    SMTP_STARTTLS: bool = True
+
+    # Delete scans older than this for everyone (0 = keep; users can set shorter)
+    DATA_RETENTION_DAYS: int = 0
+
     # Optional source API keys
     HIBP_API_KEY: str = ""
     EMAILREP_API_KEY: str = ""
@@ -53,14 +65,18 @@ class Settings(BaseSettings):
     # Rate limiting (per client IP) for auth and scan creation
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_SCANS: str = "20/hour"
+    RATE_LIMIT_EMAIL: str = "5/hour"  # forgot-password and resend-verification
+
+    # Billing through Yoon (self-hosted payment gateway). Plan limits live in the plans table.
+    YOON_API_URL: str = ""
+    YOON_API_KEY: str = ""
+    YOON_WEBHOOK_SECRET: str = ""
+    BILLING_GRACE_DAYS: int = 2
+    BILLING_REMINDER_DAYS: int = 7
     
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
     
-    # User Plan Limits
-    FREE_DAILY_SCANS: int = 150
-    PRO_DAILY_SCANS: int = 50
-    ENTERPRISE_DAILY_SCANS: int = 999999
     
     model_config = SettingsConfigDict(
         env_file=".env",

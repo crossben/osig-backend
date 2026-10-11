@@ -1,0 +1,38 @@
+# Local Yoon payment gateway in demo mode (no money moves), for OSIG billing.
+#   docker compose -f docker-compose.yoon.yml --env-file .env.yoon up -d
+#   docker compose -f docker-compose.yoon.yml --env-file .env.yoon run --rm yoon apps create osig
+# Yoon: https://github.com/crossben/yoonpay (AGPL-3.0, run unmodified as a separate service)
+name: osig-yoon
+services:
+  yoon-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: yoon
+      POSTGRES_USER: yoon
+      POSTGRES_PASSWORD: ${YOON_DB_PASSWORD:?set YOON_DB_PASSWORD in .env.yoon}
+    volumes:
+      - yoon-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yoon -d yoon"]
+      interval: 5s
+      retries: 10
+
+  yoon:
+    image: ghcr.io/crossben/yoon:0.2.0
+    depends_on:
+      yoon-db:
+        condition: service_healthy
+    env_file:
+      - path: .env.yoon
+        required: true
+    environment:
+      YOON_DB_URL: jdbc:postgresql://yoon-db:5432/yoon
+      YOON_DB_USER: yoon
+      YOON_DB_PASSWORD: ${YOON_DB_PASSWORD}
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  yoon-pgdata:

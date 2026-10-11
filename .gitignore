@@ -55,3 +55,4 @@ htmlcov/
 
 # Docker
 docker-compose.override.yml
+.env.yoon

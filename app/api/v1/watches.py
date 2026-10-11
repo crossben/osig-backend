@@ -5,7 +5,7 @@ A watch re-scans a target on a schedule; /changes diffs the entities found by
 the two most recent completed runs (new subdomain, new breach, DNS change...).
 """
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,12 +14,11 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db
 from app.models.investigation import Watch
-from app.models.result import Result
-from app.models.scan import Scan, ScanStatus, ScanType, TargetType
+from app.models.scan import ScanType, TargetType
 from app.models.user import User
 from app.schemas.scan import CreateScanRequest
 from app.services import audit_service
-from app.services.graph_service import build_entity_graph
+from app.services.diff_service import diff, finished
 
 router = APIRouter(prefix="/watches", tags=["Watches"])
 
@@ -65,6 +64,13 @@ def _out(w: Watch) -> WatchOut:
     return out
 
 
+def _check_interval(db: Session, user: User, hours: int) -> None:
+    from app.services import plan_limits
+    shortest = plan_limits.limit(db, user, "min_watch_interval_hours") or 24
+    if hours < shortest:
+        raise plan_limits.PlanLimitReached(f"Your plan re-scans at most every {shortest} hours.")
+
+
 def _get(db: Session, user: User, watch_id: UUID) -> Watch:
     w = db.query(Watch).filter(Watch.id == watch_id, Watch.user_id == user.id).first()
     if not w:
@@ -82,8 +88,10 @@ def create_watch(body: WatchIn, request: Request, db: Session = Depends(get_db),
     # Validate the target with the same rules as a manual scan
     CreateScanRequest(target_type=body.target_type, target_value=body.target_value,
                       scan_type=body.scan_type, disclaimer_accepted=True)
-    if db.query(Watch).filter(Watch.user_id == user.id).count() >= MAX_WATCHES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"You can watch up to {MAX_WATCHES} targets")
+    from app.services import plan_limits
+    plan_limits.require_below(db, user, "watches", db.query(Watch).filter(Watch.user_id == user.id).count(),
+                              "Your plan watches up to {limit} targets.")
+    _check_interval(db, user, body.interval_hours)
     w = Watch(user_id=user.id, target_type=body.target_type, target_value=body.target_value,
               scan_type=body.scan_type, interval_hours=body.interval_hours, next_run_at=datetime.utcnow())
     db.add(w)
@@ -98,6 +106,7 @@ def create_watch(body: WatchIn, request: Request, db: Session = Depends(get_db),
 def update_watch(watch_id: UUID, body: WatchPatch, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     w = _get(db, user, watch_id)
     if body.interval_hours is not None:
+        _check_interval(db, user, body.interval_hours)
         w.interval_hours = body.interval_hours
         if w.last_run_at:
             w.next_run_at = w.last_run_at + timedelta(hours=w.interval_hours)
@@ -117,36 +126,18 @@ def delete_watch(watch_id: UUID, db: Session = Depends(get_db), user: User = Dep
     db.commit()
 
 
-def _entities(db: Session, scan: Scan, include_search: bool) -> Dict[str, dict]:
-    results = db.query(Result).filter(Result.scan_id == scan.id).all()
-    if not include_search:
-        # Search-engine hits reshuffle between runs; they'd drown real changes
-        results = [r for r in results if r.data_type != "dork_result"]
-    graph = build_entity_graph(scan, results)
-    return {n["id"]: {"id": n["id"], "kind": n["kind"], "label": n["label"]}
-            for n in graph["nodes"] if n["kind"] not in ("target", "source")}
-
-
-def _finished(scan: Scan) -> bool:
-    """Completed AND every module (incl. background ones) has answered."""
-    return scan.status == ScanStatus.COMPLETED and all(
-        m.status.value not in ("pending", "running") for m in scan.modules)
-
-
 @router.get("/{watch_id}/changes")
 def watch_changes(watch_id: UUID, include_search: bool = False, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
     """What appeared and disappeared between the two most recent finished runs."""
     w = _get(db, user, watch_id)
-    runs = [s for s in w.scans if _finished(s)]
+    runs = [s for s in w.scans if finished(s)]
     if len(runs) < 2:
         return {"compared": None, "added": [], "removed": [], "runs": len(runs)}
     prev, latest = runs[-2], runs[-1]
-    before, after = _entities(db, prev, include_search), _entities(db, latest, include_search)
-    added = sorted((after[k] for k in after.keys() - before.keys()), key=lambda e: (e["kind"], e["label"]))
-    removed = sorted((before[k] for k in before.keys() - after.keys()), key=lambda e: (e["kind"], e["label"]))
+    d = diff(db, prev, latest, include_search)
     return {
         "compared": {"previous_scan_id": str(prev.id), "previous_at": prev.created_at,
                      "latest_scan_id": str(latest.id), "latest_at": latest.created_at},
-        "added": added, "removed": removed, "runs": len(runs),
+        "added": d["added"], "removed": d["removed"], "runs": len(runs),
     }

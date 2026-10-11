@@ -36,6 +36,12 @@ class UserResponse(UserBase):
     """Schema for user response (without password)."""
     has_password: bool = True
     google_linked: bool = False
+    email_verified: bool = False
+    totp_enabled: bool = False
+    retention_days: Optional[int] = None
+    notify_email: bool = True
+    webhook_url: Optional[str] = None
+    language: str = "en"
     id: UUID
     plan: UserPlan
     avatar_url: Optional[str] = None
@@ -49,9 +55,13 @@ class UserResponse(UserBase):
 
 # User Update
 class UserUpdate(BaseModel):
-    """Schema for updating user profile."""
+    """Schema for updating user profile and preferences."""
     full_name: Optional[str] = Field(None, max_length=100)
     avatar_url: Optional[str] = Field(None, max_length=500)
+    retention_days: Optional[int] = Field(None, ge=1, le=3650)
+    notify_email: Optional[bool] = None
+    webhook_url: Optional[str] = Field(None, max_length=500)
+    language: Optional[str] = Field(None, pattern="^(en|fr)$")
 
 
 # Password Change
